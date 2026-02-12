@@ -24,7 +24,6 @@ MECCA = pytz.timezone("Asia/Riyadh")
 # Logging
 # =============================
 logging.basicConfig(level=logging.INFO)
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -49,7 +48,6 @@ links INTEGER DEFAULT 0,
 closed INTEGER DEFAULT 0
 )
 """)
-
 conn.commit()
 
 # =============================
@@ -59,53 +57,44 @@ def admin_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton("🔓 فتح الرسائل للجميع", callback_data="open_messages"),
-                InlineKeyboardButton("🔒 قفل الرسائل للجميع", callback_data="close_messages")
+                InlineKeyboardButton(text="🔓 فتح الروابط", callback_data="enable_links"),
+                InlineKeyboardButton(text="🔒 قفل الروابط", callback_data="disable_links")
             ],
             [
-                InlineKeyboardButton("🔓 فتح الروابط", callback_data="enable_links"),
-                InlineKeyboardButton("🔒 قفل الروابط", callback_data="disable_links")
-            ],
-            [
-                InlineKeyboardButton("🧹 تصفير التحذيرات", callback_data="reset")
-            ],
-            [
-                InlineKeyboardButton("🔇 كتم عضو", callback_data="mute_user")
+                InlineKeyboardButton(text="🧹 تصفير التحذيرات", callback_data="reset"),
             ]
         ]
     )
 
 # =============================
-# التحقق من المشرف
+# تحقق من المشرف
 # =============================
 async def is_admin(chat_id, user_id):
     member = await bot.get_chat_member(chat_id, user_id)
     return member.status in ["administrator", "creator"]
 
 # =============================
-# التوقيت المغلق للقروب
+# تحقق الوقت
 # =============================
 def is_closed_time():
     now = datetime.now(MECCA)
-    hour = now.hour
-    return hour >= 23 or hour < 7
+    return now.hour >= 23 or now.hour < 7
 
 # =============================
-# فتح / قفل القروب
+# قفل / فتح القروب
 # =============================
 async def close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
-    await bot.send_message(chat_id, "🔴 القروب مغلق الآن ⏰ من 11 مساءً إلى 7 صباحاً")
+    await bot.send_message(chat_id, "🔴 القروب مغلق الآن\n⏰ من الساعة 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة")
 
 async def open_group(chat_id):
-    await bot.set_chat_permissions(
-        chat_id,
-        ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
-    )
-    await bot.send_message(chat_id, "🟢 تم فتح القروب، مرحباً بكم 🌿")
+    await bot.set_chat_permissions(chat_id, ChatPermissions(
+        can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True
+    ))
+    await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
 
 # =============================
-# المجدول
+# جدولة القفل/الفتح
 # =============================
 async def scheduler():
     while True:
@@ -126,9 +115,9 @@ async def scheduler():
 # كشف الروابط
 # =============================
 def has_link(text):
-    if not text: return False
-    pattern = r"(https?://|www\.|t\.me)"
-    return re.search(pattern, text.lower())
+    if not text:
+        return False
+    return bool(re.search(r"(https?://|www\.|t\.me)", text.lower()))
 
 # =============================
 # التحذيرات
@@ -146,54 +135,56 @@ def add_warning(chat_id, user_id):
     return count
 
 # =============================
-# أمر /start
+# /tabuk (لوحة التحكم)
 # =============================
-@dp.message(Command("start"))
-async def start(message: types.Message):
+@dp.message(Command("tabuk"))
+async def tabuk(message: types.Message):
     text = (
         "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"
         "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
         "قناة نماذج Ai التعليمية\nhttps://t.me/eduai_ksa\n\n"
-        "قروب (نماذج Ai التعليمية) 💬\nhttps://t.me/eduai_ksa1\n\n"
+        "قروب ( نماذج Ai التعليمية ) 💬\nhttps://t.me/eduai_ksa1\n\n"
         "أضفني للقروب وارفعني مشرف للحماية\n"
         "برمجة الأستاذ عبدالله البلوي"
     )
-
     if message.chat.type == ChatType.PRIVATE:
         await message.answer(text)
     else:
-        # تظهر لوحة التحكم للمشرف فقط
         if await is_admin(message.chat.id, message.from_user.id):
             await message.reply("✅ لوحة تحكم المشرف", reply_markup=admin_keyboard())
+            cursor.execute("INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)", (message.chat.id,))
+            conn.commit()
         else:
             await message.reply("✅ تم تفعيل الحماية")
-        cursor.execute("INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)", (message.chat.id,))
-        conn.commit()
+            cursor.execute("INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)", (message.chat.id,))
+            conn.commit()
 
 # =============================
-# الترحيب بالمشتركين الجدد
+# الترحيب بالعضو الجديد
 # =============================
 @dp.message(F.new_chat_members)
 async def welcome(message: types.Message):
     for user in message.new_chat_members:
-        await message.reply(f"👋 مرحباً {user.first_name} في القروب 🌿")
+        await message.reply(f"👋 مرحباً {user.first_name}")
 
 # =============================
-# حماية الرسائل والروابط
+# حماية القروب
 # =============================
 @dp.message(F.text)
 async def security(message: types.Message):
     if message.chat.type not in ["group", "supergroup"]:
         return
+
     chat_id = message.chat.id
     user_id = message.from_user.id
+
     if await is_admin(chat_id, user_id):
         return
-    # قفل الوقت
+
     if is_closed_time():
         await message.delete()
         return
-    # كشف الروابط
+
     if has_link(message.text):
         await message.delete()
         count = add_warning(chat_id, user_id)
@@ -213,56 +204,21 @@ async def callbacks(call: types.CallbackQuery):
     user_id = call.from_user.id
 
     if not await is_admin(chat_id, user_id):
-        await call.answer("⚠️ فقط المشرفين يمكنهم استخدام لوحة التحكم", show_alert=True)
+        await call.answer("❌ للأعضاء المسموح لهم فقط", show_alert=True)
         return
 
-    # فتح الرسائل
-    if call.data == "open_messages":
-        await bot.set_chat_permissions(chat_id, ChatPermissions(
-            can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True))
-        await call.message.answer("🟢 تم فتح الرسائل للجميع")
-
-    # قفل الرسائل
-    elif call.data == "close_messages":
-        await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
-        await call.message.answer("🔴 تم قفل الرسائل للجميع")
-
-    # فتح الروابط
-    elif call.data == "enable_links":
+    if call.data == "enable_links":
         cursor.execute("UPDATE settings SET links=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("✅ تم فتح الروابط")
-
-    # قفل الروابط
     elif call.data == "disable_links":
         cursor.execute("UPDATE settings SET links=0 WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🔒 تم قفل الروابط")
-
-    # تصفير التحذيرات
     elif call.data == "reset":
         cursor.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🧹 تم تصفير التحذيرات")
-
-    # كتم عضو مع اختيار المدة
-    elif call.data == "mute_user":
-        await call.message.answer("🔇 أرسل معرف العضو + مدة الكتم بالدقائق (مثال: 123456789 30)")
-
-        def check(m: types.Message):
-            return m.chat.id == chat_id and m.from_user.id == user_id
-
-        try:
-            msg = await dp.bot.wait_for("message", check=check, timeout=120)
-            parts = msg.text.split()
-            target_id = int(parts[0])
-            duration = int(parts[1]) if len(parts) > 1 else 60
-            await bot.restrict_chat_member(chat_id, target_id,
-                                           ChatPermissions(can_send_messages=False),
-                                           until_date=datetime.now(MECCA) + timedelta(minutes=duration))
-            await msg.reply(f"🔇 تم كتم العضو {target_id} لمدة {duration} دقيقة")
-        except Exception:
-            await call.message.answer("⚠️ لم يتم كتم العضو، أو انتهت المدة")
 
 # =============================
 # Main

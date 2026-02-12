@@ -50,7 +50,7 @@ closed INTEGER DEFAULT 0
 conn.commit()
 
 # ====================================
-# لوحة تحكم
+# لوحة تحكم المشرف
 # ====================================
 def admin_keyboard():
     return InlineKeyboardMarkup(
@@ -84,24 +84,19 @@ def is_closed_time():
 # إغلاق القروب
 # ====================================
 async def close_group(chat_id):
-
     await bot.set_chat_permissions(
         chat_id,
         ChatPermissions(can_send_messages=False)
     )
-
     await bot.send_message(
         chat_id,
-        "🔴 القروب مغلق الآن\n"
-        "⏰ من 11 مساءً إلى 7 صباحاً\n"
-        "بتوقيت مكة المكرمة"
+        "🔴 القروب مغلق الآن\n⏰ من 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة"
     )
 
 # ====================================
 # فتح القروب
 # ====================================
 async def open_group(chat_id):
-
     await bot.set_chat_permissions(
         chat_id,
         ChatPermissions(
@@ -110,49 +105,28 @@ async def open_group(chat_id):
             can_send_other_messages=True
         )
     )
-
-    await bot.send_message(
-        chat_id,
-        "🟢 تم فتح القروب\n"
-        "مرحباً بكم 🌿"
-    )
+    await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
 
 # ====================================
 # Scheduler
 # ====================================
 async def scheduler():
-
     while True:
-
         cursor.execute("SELECT chat_id, closed FROM settings")
         rows = cursor.fetchall()
-
         for chat_id, closed in rows:
-
             if is_closed_time() and closed == 0:
-
                 await close_group(chat_id)
-
-                cursor.execute(
-                    "UPDATE settings SET closed=1 WHERE chat_id=?",
-                    (chat_id,)
-                )
+                cursor.execute("UPDATE settings SET closed=1 WHERE chat_id=?", (chat_id,))
                 conn.commit()
-
             elif not is_closed_time() and closed == 1:
-
                 await open_group(chat_id)
-
-                cursor.execute(
-                    "UPDATE settings SET closed=0 WHERE chat_id=?",
-                    (chat_id,)
-                )
+                cursor.execute("UPDATE settings SET closed=0 WHERE chat_id=?", (chat_id,))
                 conn.commit()
-
         await asyncio.sleep(60)
 
 # ====================================
-# اكتشاف رابط
+# اكتشاف روابط
 # ====================================
 def has_link(text):
     if not text:
@@ -164,31 +138,15 @@ def has_link(text):
 # التحذيرات
 # ====================================
 def get_warnings(chat_id, user_id):
-
-    cursor.execute(
-        "SELECT count FROM warnings WHERE chat_id=? AND user_id=?",
-        (chat_id, user_id)
-    )
+    cursor.execute("SELECT count FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
     result = cursor.fetchone()
     return result[0] if result else 0
 
-
 def add_warning(chat_id, user_id):
-
     count = get_warnings(chat_id, user_id) + 1
-
-    cursor.execute(
-        "DELETE FROM warnings WHERE chat_id=? AND user_id=?",
-        (chat_id, user_id)
-    )
-
-    cursor.execute(
-        "INSERT INTO warnings VALUES (?, ?, ?)",
-        (chat_id, user_id, count)
-    )
-
+    cursor.execute("DELETE FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+    cursor.execute("INSERT INTO warnings VALUES (?, ?, ?)", (chat_id, user_id, count))
     conn.commit()
-
     return count
 
 # ====================================
@@ -196,20 +154,14 @@ def add_warning(chat_id, user_id):
 # ====================================
 @dp.message(Command("start"))
 async def start(message: types.Message):
-
     if message.chat.type == ChatType.PRIVATE:
-
         text = (
             "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"
-            "الموقع الالكتروني\n"
-            "https://eduai-sa.com\n\n"
-            "قناة نماذج Ai التعليمية\n"
-            "https://t.me/eduai_ksa\n\n"
-            "قروب ( نماذج Ai التعليمية ) 💬\n"
-            "https://t.me/eduai_ksa1\n\n"
+            "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
+            "قناة نماذج Ai التعليمية\nhttps://t.me/eduai_ksa\n\n"
+            "قروب ( نماذج Ai التعليمية ) 💬\nhttps://t.me/eduai_ksa1\n\n"
             "برمجة الاستاذ عبدالله البلوي"
         )
-
         await message.answer(text)
 
 # ====================================
@@ -217,32 +169,26 @@ async def start(message: types.Message):
 # ====================================
 @dp.message(Command("panel"))
 async def panel(message: types.Message):
-
     if message.chat.type not in ["group", "supergroup"]:
         return
 
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    cursor.execute(
-        "INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)",
-        (chat_id,)
-    )
+    cursor.execute("INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)", (chat_id,))
     conn.commit()
 
     if await is_admin(chat_id, user_id):
-
-        await message.reply(
-            "🔧 لوحة تحكم المشرف:",
-            reply_markup=admin_keyboard()
-        )
+        await message.reply("🔧 لوحة تحكم المشرف:", reply_markup=admin_keyboard())
+    else:
+        # العضو العادي لا يرى شيئاً
+        await message.delete()
 
 # ====================================
 # ترحيب
 # ====================================
 @dp.message(F.new_chat_members)
 async def welcome(message: types.Message):
-
     for user in message.new_chat_members:
         await message.reply(f"👋 مرحباً {user.first_name}")
 
@@ -251,7 +197,6 @@ async def welcome(message: types.Message):
 # ====================================
 @dp.message(F.text)
 async def security(message: types.Message):
-
     if message.chat.type not in ["group", "supergroup"]:
         return
 
@@ -261,31 +206,22 @@ async def security(message: types.Message):
     if await is_admin(chat_id, user_id):
         return
 
-    # وقت الإغلاق
     if is_closed_time():
         await message.delete()
         return
 
-    # منع الروابط
     if has_link(message.text):
-
         await message.delete()
-
         count = add_warning(chat_id, user_id)
-
         if count >= 3:
-
             await bot.restrict_chat_member(
                 chat_id,
                 user_id,
                 ChatPermissions(can_send_messages=False),
                 until_date=datetime.now(MECCA) + timedelta(minutes=10)
             )
-
             await message.answer("🔇 تم كتم العضو 10 دقائق")
-
         else:
-
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # ====================================
@@ -293,7 +229,6 @@ async def security(message: types.Message):
 # ====================================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
-
     chat_id = call.message.chat.id
     user_id = call.from_user.id
 
@@ -302,19 +237,16 @@ async def callbacks(call: types.CallbackQuery):
         return
 
     if call.data == "enable_links":
-
         cursor.execute("UPDATE settings SET links=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("✅ تم فتح الروابط")
 
     elif call.data == "disable_links":
-
         cursor.execute("UPDATE settings SET links=0 WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🔒 تم قفل الروابط")
 
     elif call.data == "reset":
-
         cursor.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🧹 تم تصفير التحذيرات")
@@ -323,11 +255,8 @@ async def callbacks(call: types.CallbackQuery):
 # MAIN
 # ====================================
 async def main():
-
     print("🔥 Eduai-sa Institutional Bot Running")
-
     asyncio.create_task(scheduler())
-
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

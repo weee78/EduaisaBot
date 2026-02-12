@@ -1,11 +1,11 @@
 import asyncio
 import re
-import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 
-# ✅ احصل على التوكن من Environment Variable
-TOKEN = os.getenv("8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI")
+# 🔹 التوكن مباشرة
+TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 

@@ -2,8 +2,7 @@ import asyncio
 import logging
 import re
 import sqlite3
-from datetime import datetime, timedelta
-import pytz
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -16,9 +15,11 @@ from aiogram.enums import ChatType
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
 # =============================
-# TIMEZONE
+# TIMEZONE (توقيت مكة = UTC+3)
 # =============================
-MECCA = pytz.timezone("Asia/Riyadh")
+def mecca_now():
+    """ترجع الوقت الحالي بتوقيت مكة المكرمة (UTC+3)"""
+    return datetime.utcnow() + timedelta(hours=3)
 
 # =============================
 # Logging
@@ -42,7 +43,7 @@ CREATE TABLE IF NOT EXISTS warnings (
 )
 """)
 
-# جدول الإعدادات مع إضافة أعمدة للتجاوز اليدوي
+# جدول الإعدادات
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS settings (
     chat_id INTEGER PRIMARY KEY,
@@ -82,10 +83,10 @@ async def is_admin(chat_id, user_id):
     return member.status in ["administrator", "creator"]
 
 # =============================
-# Time check (للمجدول)
+# Time check (للمجدول) - تعتمد على توقيت مكة الحقيقي
 # =============================
 def is_closed_time():
-    now = datetime.now(MECCA)
+    now = mecca_now()
     return now.hour >= 23 or now.hour < 7
 
 # =============================
@@ -97,7 +98,6 @@ async def auto_close_group(chat_id):
         chat_id,
         "🔴 القروب مغلق الآن\n⏰ من الساعة 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة"
     )
-    # تحديث قاعدة البيانات: تم الإغلاق تلقائياً، إلغاء أي تجاوز يدوي
     cursor.execute(
         "UPDATE settings SET closed=1, manually_closed=0, manually_opened=0 WHERE chat_id=?",
         (chat_id,)
@@ -114,7 +114,6 @@ async def auto_open_group(chat_id):
         )
     )
     await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
-    # تحديث قاعدة البيانات: تم الفتح تلقائياً، إلغاء أي تجاوز يدوي
     cursor.execute(
         "UPDATE settings SET closed=0, manually_closed=0, manually_opened=0 WHERE chat_id=?",
         (chat_id,)
@@ -127,7 +126,6 @@ async def auto_open_group(chat_id):
 async def manual_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
     await bot.send_message(chat_id, "✅ تم قفل المجموعة بنجاح")
-    # تحديث قاعدة البيانات: إغلاق يدوي، نضع manually_closed=1
     cursor.execute(
         "UPDATE settings SET closed=1, manually_closed=1, manually_opened=0 WHERE chat_id=?",
         (chat_id,)
@@ -144,7 +142,6 @@ async def manual_open_group(chat_id):
         )
     )
     await bot.send_message(chat_id, "✅ تم فتح المجموعة بنجاح")
-    # تحديث قاعدة البيانات: فتح يدوي، نضع manually_opened=1
     cursor.execute(
         "UPDATE settings SET closed=0, manually_closed=0, manually_opened=1 WHERE chat_id=?",
         (chat_id,)
@@ -152,23 +149,28 @@ async def manual_open_group(chat_id):
     conn.commit()
 
 # =============================
-# Scheduler (يحترم التجاوز اليدوي)
+# Scheduler - مع طباعة توقيت مكة للتأكد
 # =============================
 async def scheduler():
+    print("🚀 بدأ المجدول التلقائي - توقيت مكة المكرمة (UTC+3)")
     while True:
+        now = mecca_now()
+        print(f"🕐 توقيت مكة الآن: {now.strftime('%Y-%m-%d %H:%M:%S')} - الساعة: {now.hour}")
+
         cursor.execute("SELECT chat_id, closed, manually_closed, manually_opened FROM settings")
         rows = cursor.fetchall()
+        print(f"📊 عدد المجموعات المسجلة: {len(rows)}")
+
         for chat_id, closed, manually_closed, manually_opened in rows:
-            # وقت الإغلاق التلقائي
             if is_closed_time():
-                # إذا كانت المجموعة مفتوحة وليس هناك تجاوز يدوي للفتح، نغلقها
                 if closed == 0 and manually_opened == 0:
+                    print(f"🔴 جاري إغلاق المجموعة {chat_id} تلقائياً")
                     await auto_close_group(chat_id)
-            # وقت الفتح التلقائي
             else:
-                # إذا كانت المجموعة مغلقة وليس هناك تجاوز يدوي للإغلاق، نفتحها
                 if closed == 1 and manually_closed == 0:
+                    print(f"🟢 جاري فتح المجموعة {chat_id} تلقائياً")
                     await auto_open_group(chat_id)
+
         await asyncio.sleep(60)
 
 # =============================
@@ -254,12 +256,11 @@ async def security(message: types.Message):
         await message.delete()
         count = add_warning(chat_id, user_id)
         if count >= 3:
-            # كتم لمدة ساعة
             await bot.restrict_chat_member(
                 chat_id,
                 user_id,
                 ChatPermissions(can_send_messages=False),
-                until_date=datetime.now(MECCA) + timedelta(hours=1)
+                until_date=mecca_now() + timedelta(hours=1)
             )
             await message.answer("🔇 تم كتم العضو ساعة واحدة")
         else:
@@ -331,7 +332,7 @@ async def mute_command(message: types.Message):
             chat_id,
             target_user.id,
             ChatPermissions(can_send_messages=False),
-            until_date=datetime.now(MECCA) + delta
+            until_date=mecca_now() + delta
         )
         await message.reply(f"🔇 تم كتم {target_user.first_name} لمدة {duration_str}.")
     except Exception as e:
@@ -372,7 +373,7 @@ async def callbacks(call: types.CallbackQuery):
 # Main
 # =============================
 async def main():
-    print("🔥 Bot Running")
+    print("🔥 بوت الحماية شغال - توقيت مكة المكرمة (UTC+3)")
     asyncio.create_task(scheduler())
     await dp.start_polling(bot)
 

@@ -51,7 +51,7 @@ closed INTEGER DEFAULT 0
 conn.commit()
 
 # =============================
-# Keyboard لوحة تحكم المشرف
+# Keyboard لوحة تحكم المشرف (مطوّرة)
 # =============================
 def admin_keyboard():
     return InlineKeyboardMarkup(
@@ -62,6 +62,11 @@ def admin_keyboard():
             ],
             [
                 InlineKeyboardButton(text="🧹 تصفير التحذيرات", callback_data="reset")
+            ],
+            # 🆕 صف جديد لقفل وفتح المجموعة يدوياً
+            [
+                InlineKeyboardButton(text="🔒 قفل المجموعة", callback_data="close_group"),
+                InlineKeyboardButton(text="🔓 تشغيل المجموعة", callback_data="open_group")
             ]
         ]
     )
@@ -193,25 +198,105 @@ async def security(message: types.Message):
         await message.delete()
         count = add_warning(chat_id, user_id)
         if count >= 3:
+            # 🕐 تعديل المدة من 10 دقائق إلى ساعة واحدة
             await bot.restrict_chat_member(
                 chat_id,
                 user_id,
                 ChatPermissions(can_send_messages=False),
-                until_date=datetime.now(MECCA) + timedelta(minutes=10)
+                until_date=datetime.now(MECCA) + timedelta(hours=1)
             )
-            await message.answer("🔇 تم كتم العضو 10 دقائق")
+            await message.answer("🔇 تم كتم العضو ساعة واحدة")
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# Callbacks لوحة التحكم
+# 🆕 الأمر /mute لكتم أي عضو مع اختيار المدة
+# =============================
+@dp.message(Command("mute"))
+async def mute_command(message: types.Message):
+    """كتم عضو معين مع مدة محددة.
+    الاستخدام:
+        /mute 1h      (بالرد على رسالة العضو)
+        /mute 30m @username
+        /mute 2d      (بالرد أو بذكر العضو)
+    """
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    if not await is_admin(chat_id, user_id):
+        await message.reply("❌ هذا الأمر للمشرفين فقط.")
+        return
+
+    # استخراج المدة من الرسالة
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("⚠️ يرجى تحديد المدة، مثال:\n`/mute 1h` (بالرد على رسالة العضو)\n`/mute 30m @username`")
+        return
+
+    duration_str = parts[1].lower()
+    # تحويل المدة إلى timedelta
+    delta = None
+    match = re.match(r"^(\d+)([smhd])$", duration_str)
+    if match:
+        value = int(match.group(1))
+        unit = match.group(2)
+        if unit == 's':
+            delta = timedelta(seconds=value)
+        elif unit == 'm':
+            delta = timedelta(minutes=value)
+        elif unit == 'h':
+            delta = timedelta(hours=value)
+        elif unit == 'd':
+            delta = timedelta(days=value)
+    if not delta:
+        await message.reply("❌ صيغة المدة غير صحيحة.\nاستخدم `30m`, `1h`, `2d`, `10s` ...")
+        return
+
+    # تحديد العضو المراد كتمه
+    target_user = None
+    if message.reply_to_message:
+        target_user = message.reply_to_message.from_user
+    else:
+        # محاولة استخراج @username من النص
+        if len(parts) >= 3:
+            username = parts[2].lstrip('@')
+            try:
+                # الحصول على معلومات العضو عبر اسم المستخدم
+                chat = await bot.get_chat(chat_id)
+                async for member in bot.get_chat_members(chat_id):
+                    if member.user.username and member.user.username.lower() == username.lower():
+                        target_user = member.user
+                        break
+            except:
+                pass
+        if not target_user:
+            await message.reply("❌ لم يتم العثور على العضو. تأكد من الرد على رسالته أو ذكر معرفه بشكل صحيح.")
+            return
+
+    # لا يمكن كتم المشرفين
+    if await is_admin(chat_id, target_user.id):
+        await message.reply("❌ لا يمكن كتم مشرف.")
+        return
+
+    try:
+        await bot.restrict_chat_member(
+            chat_id,
+            target_user.id,
+            ChatPermissions(can_send_messages=False),
+            until_date=datetime.now(MECCA) + delta
+        )
+        await message.reply(f"🔇 تم كتم {target_user.first_name} لمدة {duration_str}.")
+    except Exception as e:
+        await message.reply(f"❌ فشل الكتم: {e}")
+
+# =============================
+# Callbacks لوحة التحكم (مطوّرة)
 # =============================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
     chat_id = call.message.chat.id
     user_id = call.from_user.id
 
-    # تأكد من أن الزر فقط للمشرف
     if not await is_admin(chat_id, user_id):
         await call.answer("❌ للأعضاء المسموح لهم فقط", show_alert=True)
         return
@@ -228,6 +313,17 @@ async def callbacks(call: types.CallbackQuery):
         cursor.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🧹 تم تصفير التحذيرات")
+    # 🆕 معالجة أزرار قفل/فتح المجموعة
+    elif call.data == "close_group":
+        await close_group(chat_id)
+        cursor.execute("UPDATE settings SET closed=1 WHERE chat_id=?", (chat_id,))
+        conn.commit()
+        await call.answer("🔒 تم قفل المجموعة")
+    elif call.data == "open_group":
+        await open_group(chat_id)
+        cursor.execute("UPDATE settings SET closed=0 WHERE chat_id=?", (chat_id,))
+        conn.commit()
+        await call.answer("🔓 تم تشغيل المجموعة")
 
 # =============================
 # Main

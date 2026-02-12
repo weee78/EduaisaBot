@@ -140,7 +140,7 @@ def add_warning(chat_id, user_id):
 # =============================
 # Tabuk (بديل Start)
 # =============================
-@dp.message(Command("tabuk"))
+@dp.message(Command("start"))
 async def tabuk(message: types.Message):
     text = (
         "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"

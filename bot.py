@@ -5,21 +5,31 @@ import sqlite3
 from datetime import datetime, timedelta
 import pytz
 
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from aiogram.enums import ChatType
 
-# =========================
+# =============================
+# TOKEN
+# =============================
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
+
+# =============================
+# TIMEZONE
+# =============================
 MECCA = pytz.timezone("Asia/Riyadh")
 
+# =============================
+# Logging
+# =============================
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# =========================
-# DATABASE
+# =============================
+# Database
+# =============================
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
@@ -40,43 +50,60 @@ closed INTEGER DEFAULT 0
 """)
 conn.commit()
 
-# =========================
-# لوحة تحكم المشرف
+# =============================
+# Keyboard
+# =============================
 def admin_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🔓 فتح الروابط", callback_data="enable_links"),
-            InlineKeyboardButton(text="🔒 قفل الروابط", callback_data="disable_links")
-        ],
-        [
-            InlineKeyboardButton(text="🧹 تصفير التحذيرات", callback_data="reset")
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔓 فتح الروابط", callback_data="enable_links"),
+                InlineKeyboardButton(text="🔒 قفل الروابط", callback_data="disable_links")
+            ],
+            [
+                InlineKeyboardButton(text="🧹 تصفير التحذيرات", callback_data="reset")
+            ]
         ]
-    ])
+    )
 
-# =========================
+# =============================
+# Admin check
+# =============================
 async def is_admin(chat_id, user_id):
     member = await bot.get_chat_member(chat_id, user_id)
     return member.status in ["administrator", "creator"]
 
+# =============================
+# Time check
+# =============================
 def is_closed_time():
     now = datetime.now(MECCA)
     return now.hour >= 23 or now.hour < 7
 
-# =========================
-# إغلاق وفتح القروب تلقائي
+# =============================
+# Close / Open Group
+# =============================
 async def close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
-    await bot.send_message(chat_id, "🔴 القروب مغلق الآن\n⏰ من 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة")
+    await bot.send_message(
+        chat_id,
+        "🔴 القروب مغلق الآن\n⏰ من الساعة 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة"
+    )
 
 async def open_group(chat_id):
     await bot.set_chat_permissions(chat_id,
-        ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True))
+        ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
+    )
     await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
 
+# =============================
+# Scheduler
+# =============================
 async def scheduler():
     while True:
         cursor.execute("SELECT chat_id, closed FROM settings")
-        for chat_id, closed in cursor.fetchall():
+        rows = cursor.fetchall()
+        for chat_id, closed in rows:
             if is_closed_time() and closed == 0:
                 await close_group(chat_id)
                 cursor.execute("UPDATE settings SET closed=1 WHERE chat_id=?", (chat_id,))
@@ -87,12 +114,17 @@ async def scheduler():
                 conn.commit()
         await asyncio.sleep(60)
 
-# =========================
-# الروابط والتحذيرات
+# =============================
+# Link detect
+# =============================
 def has_link(text):
-    if not text: return False
+    if not text:
+        return False
     return bool(re.search(r"(https?://|www\.|t\.me)", text.lower()))
 
+# =============================
+# Warnings
+# =============================
 def get_warnings(chat_id, user_id):
     cursor.execute("SELECT count FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
     r = cursor.fetchone()
@@ -105,8 +137,9 @@ def add_warning(chat_id, user_id):
     conn.commit()
     return count
 
-# =========================
-# START (خاص)
+# =============================
+# Start
+# =============================
 @dp.message(Command("start"))
 async def start(message: types.Message):
     if message.chat.type == ChatType.PRIVATE:
@@ -115,43 +148,41 @@ async def start(message: types.Message):
             "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
             "قناة نماذج Ai التعليمية\nhttps://t.me/eduai_ksa\n\n"
             "قروب ( نماذج Ai التعليمية ) 💬\nhttps://t.me/eduai_ksa1\n\n"
-            "برمجة الاستاذ عبدالله البلوي"
+            "أضفني للقروب وارفعني مشرف للحماية."
         )
         await message.answer(text)
+    else:
+        # أي رسالة /start في القروب يظهر تفعيل حماية تلقائي فقط
+        cursor.execute("INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)", (message.chat.id,))
+        conn.commit()
+        await message.reply("✅ تم تفعيل الحماية")
 
-# =========================
-# PANEL (للمشرف فقط)
-@dp.message(Command("panel"))
-async def panel(message: types.Message):
-    if message.chat.type not in ["group", "supergroup"]:
-        return
-
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-
-    cursor.execute("INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)", (chat_id,))
-    conn.commit()
-
-    if await is_admin(chat_id, user_id):
-        # هنا تظهر لوحة التحكم فقط للمشرف
-        await bot.send_message(
-            chat_id,
-            "🔧 لوحة تحكم المشرف:",
-            reply_markup=admin_keyboard()
-        )
-    # العضو العادي لا يرى أي شيء إطلاقاً
-
-# =========================
-# الترحيب
+# =============================
+# Secret Admin Panel
+# =============================
 @dp.message()
+async def secret_panel(message: types.Message):
+    if message.text == "/tabuk":  # الكلمة السرية
+        chat_id = message.chat.id
+        user_id = message.from_user.id
+        if message.chat.type not in ["group", "supergroup"]:
+            return
+        if await is_admin(chat_id, user_id):
+            await bot.send_message(chat_id, "🔧 لوحة تحكم المشرف:", reply_markup=admin_keyboard())
+        # العضو العادي لا يرى شيئاً إطلاقاً
+
+# =============================
+# Welcome
+# =============================
+@dp.message(F.new_chat_members)
 async def welcome(message: types.Message):
-    if message.new_chat_members:
-        for user in message.new_chat_members:
-            await message.reply(f"👋 مرحباً {user.first_name}")
+    for user in message.new_chat_members:
+        await message.reply(f"👋 مرحباً {user.first_name}")
 
-# =========================
-# حماية القروب
-@dp.message()
+# =============================
+# Security
+# =============================
+@dp.message(F.text)
 async def security(message: types.Message):
     if message.chat.type not in ["group", "supergroup"]:
         return
@@ -180,13 +211,13 @@ async def security(message: types.Message):
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 
-# =========================
+# =============================
 # Callbacks لوحة التحكم
+# =============================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
     chat_id = call.message.chat.id
     user_id = call.from_user.id
-
     if not await is_admin(chat_id, user_id):
         await call.answer("❌ للمشرفين فقط", show_alert=True)
         return
@@ -204,9 +235,11 @@ async def callbacks(call: types.CallbackQuery):
         conn.commit()
         await call.message.answer("🧹 تم تصفير التحذيرات")
 
-# =========================
+# =============================
+# Main
+# =============================
 async def main():
-    print("🔥 Eduai-sa Bot Running")
+    print("🔥 Bot Running")
     asyncio.create_task(scheduler())
     await dp.start_polling(bot)
 

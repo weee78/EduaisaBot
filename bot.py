@@ -20,9 +20,6 @@ TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 # ====================================
 MECCA = pytz.timezone("Asia/Riyadh")
 
-# ====================================
-# LOGGING
-# ====================================
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=TOKEN)
@@ -53,7 +50,7 @@ closed INTEGER DEFAULT 0
 conn.commit()
 
 # ====================================
-# لوحة تحكم المشرف
+# لوحة تحكم
 # ====================================
 def admin_keyboard():
     return InlineKeyboardMarkup(
@@ -79,14 +76,9 @@ async def is_admin(chat_id, user_id):
 # تحقق وقت الإغلاق
 # ====================================
 def is_closed_time():
-
     now = datetime.now(MECCA)
     hour = now.hour
-
-    if hour >= 23 or hour < 7:
-        return True
-
-    return False
+    return hour >= 23 or hour < 7
 
 # ====================================
 # إغلاق القروب
@@ -160,13 +152,11 @@ async def scheduler():
         await asyncio.sleep(60)
 
 # ====================================
-# اكتشاف الروابط
+# اكتشاف رابط
 # ====================================
 def has_link(text):
-
     if not text:
         return False
-
     pattern = r"(https?://|www\.|t\.me)"
     return re.search(pattern, text.lower())
 
@@ -179,9 +169,7 @@ def get_warnings(chat_id, user_id):
         "SELECT count FROM warnings WHERE chat_id=? AND user_id=?",
         (chat_id, user_id)
     )
-
     result = cursor.fetchone()
-
     return result[0] if result else 0
 
 
@@ -204,25 +192,33 @@ def add_warning(chat_id, user_id):
     return count
 
 # ====================================
-# START
+# START (خاص فقط)
 # ====================================
 @dp.message(Command("start"))
 async def start(message: types.Message):
 
-    text = (
-        "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"
-        "الموقع الالكتروني\n"
-        "https://eduai-sa.com\n\n"
-        "قناة نماذج Ai التعليمية\n"
-        "https://t.me/eduai_ksa\n\n"
-        "قروب ( نماذج Ai التعليمية ) 💬\n"
-        "https://t.me/eduai_ksa1\n\n"
-        "برمجة الاستاذ عبدالله البلوي"
-    )
-
     if message.chat.type == ChatType.PRIVATE:
 
+        text = (
+            "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"
+            "الموقع الالكتروني\n"
+            "https://eduai-sa.com\n\n"
+            "قناة نماذج Ai التعليمية\n"
+            "https://t.me/eduai_ksa\n\n"
+            "قروب ( نماذج Ai التعليمية ) 💬\n"
+            "https://t.me/eduai_ksa1\n\n"
+            "برمجة الاستاذ عبدالله البلوي"
+        )
+
         await message.answer(text)
+
+# ====================================
+# PANEL (للمشرف فقط)
+# ====================================
+@dp.message(Command("panel"))
+async def panel(message: types.Message):
+
+    if message.chat.type not in ["group", "supergroup"]:
         return
 
     chat_id = message.chat.id
@@ -237,14 +233,9 @@ async def start(message: types.Message):
     if await is_admin(chat_id, user_id):
 
         await message.reply(
-            "✅ تم تفعيل الحماية\n"
             "🔧 لوحة تحكم المشرف:",
             reply_markup=admin_keyboard()
         )
-
-    else:
-
-        await message.reply("✅ البوت يعمل بنجاح")
 
 # ====================================
 # ترحيب
@@ -253,7 +244,6 @@ async def start(message: types.Message):
 async def welcome(message: types.Message):
 
     for user in message.new_chat_members:
-
         await message.reply(f"👋 مرحباً {user.first_name}")
 
 # ====================================
@@ -271,11 +261,12 @@ async def security(message: types.Message):
     if await is_admin(chat_id, user_id):
         return
 
+    # وقت الإغلاق
     if is_closed_time():
-
         await message.delete()
         return
 
+    # منع الروابط
     if has_link(message.text):
 
         await message.delete()
@@ -307,38 +298,25 @@ async def callbacks(call: types.CallbackQuery):
     user_id = call.from_user.id
 
     if not await is_admin(chat_id, user_id):
-
         await call.answer("❌ للمشرفين فقط", show_alert=True)
         return
 
     if call.data == "enable_links":
 
-        cursor.execute(
-            "UPDATE settings SET links=1 WHERE chat_id=?",
-            (chat_id,)
-        )
+        cursor.execute("UPDATE settings SET links=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
-
         await call.message.answer("✅ تم فتح الروابط")
 
     elif call.data == "disable_links":
 
-        cursor.execute(
-            "UPDATE settings SET links=0 WHERE chat_id=?",
-            (chat_id,)
-        )
+        cursor.execute("UPDATE settings SET links=0 WHERE chat_id=?", (chat_id,))
         conn.commit()
-
         await call.message.answer("🔒 تم قفل الروابط")
 
     elif call.data == "reset":
 
-        cursor.execute(
-            "DELETE FROM warnings WHERE chat_id=?",
-            (chat_id,)
-        )
+        cursor.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,))
         conn.commit()
-
         await call.message.answer("🧹 تم تصفير التحذيرات")
 
 # ====================================
@@ -346,7 +324,7 @@ async def callbacks(call: types.CallbackQuery):
 # ====================================
 async def main():
 
-    print("🔥 Eduai-sa Professional Bot Running")
+    print("🔥 Eduai-sa Institutional Bot Running")
 
     asyncio.create_task(scheduler())
 

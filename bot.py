@@ -10,14 +10,14 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from aiogram.enums import ChatType
 
-# ====================================
+# =========================
 # TOKEN
-# ====================================
+# =========================
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
-# ====================================
+# =========================
 # TIMEZONE (مكة)
-# ====================================
+# =========================
 MECCA = pytz.timezone("Asia/Riyadh")
 
 logging.basicConfig(level=logging.INFO)
@@ -25,9 +25,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ====================================
+# =========================
 # DATABASE
-# ====================================
+# =========================
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
@@ -49,9 +49,9 @@ closed INTEGER DEFAULT 0
 
 conn.commit()
 
-# ====================================
+# =========================
 # لوحة تحكم المشرف
-# ====================================
+# =========================
 def admin_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -65,51 +65,42 @@ def admin_keyboard():
         ]
     )
 
-# ====================================
+# =========================
 # تحقق مشرف
-# ====================================
+# =========================
 async def is_admin(chat_id, user_id):
     member = await bot.get_chat_member(chat_id, user_id)
     return member.status in ["administrator", "creator"]
 
-# ====================================
+# =========================
 # تحقق وقت الإغلاق
-# ====================================
+# =========================
 def is_closed_time():
     now = datetime.now(MECCA)
     hour = now.hour
     return hour >= 23 or hour < 7
 
-# ====================================
+# =========================
 # إغلاق القروب
-# ====================================
+# =========================
 async def close_group(chat_id):
-    await bot.set_chat_permissions(
-        chat_id,
-        ChatPermissions(can_send_messages=False)
-    )
-    await bot.send_message(
-        chat_id,
+    await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
+    await bot.send_message(chat_id,
         "🔴 القروب مغلق الآن\n⏰ من 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة"
     )
 
-# ====================================
+# =========================
 # فتح القروب
-# ====================================
+# =========================
 async def open_group(chat_id):
-    await bot.set_chat_permissions(
-        chat_id,
-        ChatPermissions(
-            can_send_messages=True,
-            can_send_media_messages=True,
-            can_send_other_messages=True
-        )
+    await bot.set_chat_permissions(chat_id,
+        ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
     )
     await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
 
-# ====================================
-# Scheduler
-# ====================================
+# =========================
+# Scheduler لإغلاق وفتح القروب تلقائياً
+# =========================
 async def scheduler():
     while True:
         cursor.execute("SELECT chat_id, closed FROM settings")
@@ -125,18 +116,18 @@ async def scheduler():
                 conn.commit()
         await asyncio.sleep(60)
 
-# ====================================
-# اكتشاف روابط
-# ====================================
+# =========================
+# اكتشاف الروابط
+# =========================
 def has_link(text):
     if not text:
         return False
     pattern = r"(https?://|www\.|t\.me)"
     return re.search(pattern, text.lower())
 
-# ====================================
+# =========================
 # التحذيرات
-# ====================================
+# =========================
 def get_warnings(chat_id, user_id):
     cursor.execute("SELECT count FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
     result = cursor.fetchone()
@@ -149,9 +140,9 @@ def add_warning(chat_id, user_id):
     conn.commit()
     return count
 
-# ====================================
+# =========================
 # START (خاص فقط)
-# ====================================
+# =========================
 @dp.message(Command("start"))
 async def start(message: types.Message):
     if message.chat.type == ChatType.PRIVATE:
@@ -164,9 +155,9 @@ async def start(message: types.Message):
         )
         await message.answer(text)
 
-# ====================================
-# PANEL (للمشرف فقط)
-# ====================================
+# =========================
+# PANEL (للمشرف والمالك فقط)
+# =========================
 @dp.message(Command("panel"))
 async def panel(message: types.Message):
     if message.chat.type not in ["group", "supergroup"]:
@@ -180,21 +171,19 @@ async def panel(message: types.Message):
 
     if await is_admin(chat_id, user_id):
         await message.reply("🔧 لوحة تحكم المشرف:", reply_markup=admin_keyboard())
-    else:
-        # العضو العادي لا يرى شيئاً
-        await message.delete()
+    # العضو العادي لا يحصل على شيء إطلاقاً
 
-# ====================================
+# =========================
 # ترحيب
-# ====================================
+# =========================
 @dp.message(F.new_chat_members)
 async def welcome(message: types.Message):
     for user in message.new_chat_members:
         await message.reply(f"👋 مرحباً {user.first_name}")
 
-# ====================================
+# =========================
 # الحماية
-# ====================================
+# =========================
 @dp.message(F.text)
 async def security(message: types.Message):
     if message.chat.type not in ["group", "supergroup"]:
@@ -206,10 +195,12 @@ async def security(message: types.Message):
     if await is_admin(chat_id, user_id):
         return
 
+    # وقت الإغلاق
     if is_closed_time():
         await message.delete()
         return
 
+    # منع الروابط
     if has_link(message.text):
         await message.delete()
         count = add_warning(chat_id, user_id)
@@ -224,9 +215,9 @@ async def security(message: types.Message):
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 
-# ====================================
-# Callbacks
-# ====================================
+# =========================
+# Callbacks لوحة التحكم
+# =========================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
     chat_id = call.message.chat.id
@@ -240,20 +231,18 @@ async def callbacks(call: types.CallbackQuery):
         cursor.execute("UPDATE settings SET links=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("✅ تم فتح الروابط")
-
     elif call.data == "disable_links":
         cursor.execute("UPDATE settings SET links=0 WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🔒 تم قفل الروابط")
-
     elif call.data == "reset":
         cursor.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🧹 تم تصفير التحذيرات")
 
-# ====================================
+# =========================
 # MAIN
-# ====================================
+# =========================
 async def main():
     print("🔥 Eduai-sa Institutional Bot Running")
     asyncio.create_task(scheduler())

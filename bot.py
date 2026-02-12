@@ -147,7 +147,7 @@ async def tabuk(message: types.Message):
         "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
         "قناة نماذج Ai التعليمية\nhttps://t.me/eduai_ksa\n\n"
         "قروب ( نماذج Ai التعليمية ) 💬\nhttps://t.me/eduai_ksa1\n\n"
-        "أضفني للقروب وارفعني مشرف للحماية."
+        "برمجة الاستاذ عبدالله البلوي"
     )
     if message.chat.type == ChatType.PRIVATE:
         await message.answer(text)
@@ -198,7 +198,7 @@ async def security(message: types.Message):
                 ChatPermissions(can_send_messages=False),
                 until_date=datetime.now(MECCA) + timedelta(minutes=10)
             )
-            await message.answer("🔇 تم كتم العضو 10 دقائق")
+            await message.answer("لمخالفتك القوانين 🔇 تم كتم العضو 10 دقائق")
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 

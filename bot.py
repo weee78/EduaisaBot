@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-bot = Bot(token=8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI)
+bot = Bot(token="8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI")
 dp = Dispatcher()
 
 warnings = {}

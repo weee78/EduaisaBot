@@ -51,7 +51,7 @@ closed INTEGER DEFAULT 0
 conn.commit()
 
 # =============================
-# Keyboard
+# Keyboard لوحة تحكم المشرف
 # =============================
 def admin_keyboard():
     return InlineKeyboardMarkup(
@@ -138,38 +138,29 @@ def add_warning(chat_id, user_id):
     return count
 
 # =============================
-# Start
+# Tabuk (بديل Start)
 # =============================
-@dp.message(Command("start"))
-async def start(message: types.Message):
+@dp.message(Command("tabuk"))
+async def tabuk(message: types.Message):
+    text = (
+        "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"
+        "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
+        "قناة نماذج Ai التعليمية\nhttps://t.me/eduai_ksa\n\n"
+        "قروب ( نماذج Ai التعليمية ) 💬\nhttps://t.me/eduai_ksa1\n\n"
+        "أضفني للقروب وارفعني مشرف للحماية."
+    )
     if message.chat.type == ChatType.PRIVATE:
-        text = (
-            "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"
-            "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
-            "قناة نماذج Ai التعليمية\nhttps://t.me/eduai_ksa\n\n"
-            "قروب ( نماذج Ai التعليمية ) 💬\nhttps://t.me/eduai_ksa1\n\n"
-            "أضفني للقروب وارفعني مشرف للحماية."
-        )
         await message.answer(text)
     else:
-        # أي رسالة /start في القروب يظهر تفعيل حماية تلقائي فقط
-        cursor.execute("INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)", (message.chat.id,))
+        await message.reply(
+            "✅ تم تفعيل الحماية",
+            reply_markup=admin_keyboard()
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)",
+            (message.chat.id,)
+        )
         conn.commit()
-        await message.reply("✅ تم تفعيل الحماية")
-
-# =============================
-# Secret Admin Panel
-# =============================
-@dp.message()
-async def secret_panel(message: types.Message):
-    if message.text == "/tabuk":  # الكلمة السرية
-        chat_id = message.chat.id
-        user_id = message.from_user.id
-        if message.chat.type not in ["group", "supergroup"]:
-            return
-        if await is_admin(chat_id, user_id):
-            await bot.send_message(chat_id, "🔧 لوحة تحكم المشرف:", reply_markup=admin_keyboard())
-        # العضو العادي لا يرى شيئاً إطلاقاً
 
 # =============================
 # Welcome
@@ -218,8 +209,10 @@ async def security(message: types.Message):
 async def callbacks(call: types.CallbackQuery):
     chat_id = call.message.chat.id
     user_id = call.from_user.id
+
+    # تأكد من أن الزر فقط للمشرف
     if not await is_admin(chat_id, user_id):
-        await call.answer("❌ للمشرفين فقط", show_alert=True)
+        await call.answer("❌ للأعضاء المسموح لهم فقط", show_alert=True)
         return
 
     if call.data == "enable_links":

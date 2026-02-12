@@ -51,7 +51,7 @@ closed INTEGER DEFAULT 0
 conn.commit()
 
 # =============================
-# Keyboard لوحة تحكم المشرف (مطوّرة)
+# Keyboard لوحة تحكم المشرف
 # =============================
 def admin_keyboard():
     return InlineKeyboardMarkup(
@@ -63,7 +63,7 @@ def admin_keyboard():
             [
                 InlineKeyboardButton(text="🧹 تصفير التحذيرات", callback_data="reset")
             ],
-            # 🆕 صف جديد لقفل وفتح المجموعة يدوياً
+            # صف خاص بقفل/فتح المجموعة يدوياً
             [
                 InlineKeyboardButton(text="🔒 قفل المجموعة", callback_data="close_group"),
                 InlineKeyboardButton(text="🔓 تشغيل المجموعة", callback_data="open_group")
@@ -79,30 +79,49 @@ async def is_admin(chat_id, user_id):
     return member.status in ["administrator", "creator"]
 
 # =============================
-# Time check
+# Time check (للمجدول)
 # =============================
 def is_closed_time():
     now = datetime.now(MECCA)
     return now.hour >= 23 or now.hour < 7
 
 # =============================
-# Close / Open Group
+# قفل المجموعة (للإستخدام التلقائي مع رسالة الوقت)
 # =============================
-async def close_group(chat_id):
+async def auto_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
     await bot.send_message(
         chat_id,
         "🔴 القروب مغلق الآن\n⏰ من الساعة 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة"
     )
 
-async def open_group(chat_id):
+# =============================
+# فتح المجموعة (للإستخدام التلقائي مع رسالة الوقت)
+# =============================
+async def auto_open_group(chat_id):
     await bot.set_chat_permissions(chat_id,
         ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
     )
     await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
 
 # =============================
-# Scheduler
+# قفل المجموعة (يدوي - بدون رسالة الوقت)
+# =============================
+async def manual_close_group(chat_id):
+    await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
+    await bot.send_message(chat_id, "✅ تم قفل المجموعة بنجاح")
+
+# =============================
+# فتح المجموعة (يدوي - بدون رسالة الوقت)
+# =============================
+async def manual_open_group(chat_id):
+    await bot.set_chat_permissions(chat_id,
+        ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
+    )
+    await bot.send_message(chat_id, "✅ تم فتح المجموعة بنجاح")
+
+# =============================
+# Scheduler (يستخدم التواقيت التلقائية)
 # =============================
 async def scheduler():
     while True:
@@ -110,11 +129,11 @@ async def scheduler():
         rows = cursor.fetchall()
         for chat_id, closed in rows:
             if is_closed_time() and closed == 0:
-                await close_group(chat_id)
+                await auto_close_group(chat_id)
                 cursor.execute("UPDATE settings SET closed=1 WHERE chat_id=?", (chat_id,))
                 conn.commit()
             elif not is_closed_time() and closed == 1:
-                await open_group(chat_id)
+                await auto_open_group(chat_id)
                 cursor.execute("UPDATE settings SET closed=0 WHERE chat_id=?", (chat_id,))
                 conn.commit()
         await asyncio.sleep(60)
@@ -198,7 +217,7 @@ async def security(message: types.Message):
         await message.delete()
         count = add_warning(chat_id, user_id)
         if count >= 3:
-            # 🕐 تعديل المدة من 10 دقائق إلى ساعة واحدة
+            # تعديل المدة إلى ساعة واحدة
             await bot.restrict_chat_member(
                 chat_id,
                 user_id,
@@ -210,7 +229,7 @@ async def security(message: types.Message):
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# 🆕 الأمر /mute لكتم أي عضو مع اختيار المدة
+# الأمر /mute لكتم أي عضو مع اختيار المدة
 # =============================
 @dp.message(Command("mute"))
 async def mute_command(message: types.Message):
@@ -290,7 +309,7 @@ async def mute_command(message: types.Message):
         await message.reply(f"❌ فشل الكتم: {e}")
 
 # =============================
-# Callbacks لوحة التحكم (مطوّرة)
+# Callbacks لوحة التحكم
 # =============================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
@@ -313,17 +332,18 @@ async def callbacks(call: types.CallbackQuery):
         cursor.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🧹 تم تصفير التحذيرات")
-    # 🆕 معالجة أزرار قفل/فتح المجموعة
+
+    # 🆕 أزرار قفل/فتح المجموعة - يدوي (رسالة مبسطة)
     elif call.data == "close_group":
-        await close_group(chat_id)
+        await manual_close_group(chat_id)
         cursor.execute("UPDATE settings SET closed=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.answer("🔒 تم قفل المجموعة")
     elif call.data == "open_group":
-        await open_group(chat_id)
+        await manual_open_group(chat_id)
         cursor.execute("UPDATE settings SET closed=0 WHERE chat_id=?", (chat_id,))
         conn.commit()
-        await call.answer("🔓 تم تشغيل المجموعة")
+        await call.answer("🔓 تم فتح المجموعة")
 
 # =============================
 # Main

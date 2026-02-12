@@ -33,19 +33,23 @@ dp = Dispatcher()
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
+# جدول التحذيرات
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS warnings (
-chat_id INTEGER,
-user_id INTEGER,
-count INTEGER
+    chat_id INTEGER,
+    user_id INTEGER,
+    count INTEGER
 )
 """)
 
+# جدول الإعدادات مع إضافة أعمدة للتجاوز اليدوي
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS settings (
-chat_id INTEGER PRIMARY KEY,
-links INTEGER DEFAULT 0,
-closed INTEGER DEFAULT 0
+    chat_id INTEGER PRIMARY KEY,
+    links INTEGER DEFAULT 0,
+    closed INTEGER DEFAULT 0,
+    manually_closed INTEGER DEFAULT 0,
+    manually_opened INTEGER DEFAULT 0
 )
 """)
 conn.commit()
@@ -63,7 +67,6 @@ def admin_keyboard():
             [
                 InlineKeyboardButton(text="🧹 تصفير التحذيرات", callback_data="reset")
             ],
-            # صف خاص بقفل/فتح المجموعة يدوياً
             [
                 InlineKeyboardButton(text="🔒 قفل المجموعة", callback_data="close_group"),
                 InlineKeyboardButton(text="🔓 تشغيل المجموعة", callback_data="open_group")
@@ -86,7 +89,7 @@ def is_closed_time():
     return now.hour >= 23 or now.hour < 7
 
 # =============================
-# قفل المجموعة (للإستخدام التلقائي مع رسالة الوقت)
+# الإغلاق والفتح التلقائي (مع رسالة الوقت)
 # =============================
 async def auto_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
@@ -94,48 +97,78 @@ async def auto_close_group(chat_id):
         chat_id,
         "🔴 القروب مغلق الآن\n⏰ من الساعة 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة"
     )
+    # تحديث قاعدة البيانات: تم الإغلاق تلقائياً، إلغاء أي تجاوز يدوي
+    cursor.execute(
+        "UPDATE settings SET closed=1, manually_closed=0, manually_opened=0 WHERE chat_id=?",
+        (chat_id,)
+    )
+    conn.commit()
 
-# =============================
-# فتح المجموعة (للإستخدام التلقائي مع رسالة الوقت)
-# =============================
 async def auto_open_group(chat_id):
-    await bot.set_chat_permissions(chat_id,
-        ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
+    await bot.set_chat_permissions(
+        chat_id,
+        ChatPermissions(
+            can_send_messages=True,
+            can_send_media_messages=True,
+            can_send_other_messages=True
+        )
     )
     await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
+    # تحديث قاعدة البيانات: تم الفتح تلقائياً، إلغاء أي تجاوز يدوي
+    cursor.execute(
+        "UPDATE settings SET closed=0, manually_closed=0, manually_opened=0 WHERE chat_id=?",
+        (chat_id,)
+    )
+    conn.commit()
 
 # =============================
-# قفل المجموعة (يدوي - بدون رسالة الوقت)
+# الإغلاق والفتح اليدوي (بدون رسالة الوقت)
 # =============================
 async def manual_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
     await bot.send_message(chat_id, "✅ تم قفل المجموعة بنجاح")
+    # تحديث قاعدة البيانات: إغلاق يدوي، نضع manually_closed=1
+    cursor.execute(
+        "UPDATE settings SET closed=1, manually_closed=1, manually_opened=0 WHERE chat_id=?",
+        (chat_id,)
+    )
+    conn.commit()
 
-# =============================
-# فتح المجموعة (يدوي - بدون رسالة الوقت)
-# =============================
 async def manual_open_group(chat_id):
-    await bot.set_chat_permissions(chat_id,
-        ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
+    await bot.set_chat_permissions(
+        chat_id,
+        ChatPermissions(
+            can_send_messages=True,
+            can_send_media_messages=True,
+            can_send_other_messages=True
+        )
     )
     await bot.send_message(chat_id, "✅ تم فتح المجموعة بنجاح")
+    # تحديث قاعدة البيانات: فتح يدوي، نضع manually_opened=1
+    cursor.execute(
+        "UPDATE settings SET closed=0, manually_closed=0, manually_opened=1 WHERE chat_id=?",
+        (chat_id,)
+    )
+    conn.commit()
 
 # =============================
-# Scheduler (يستخدم التواقيت التلقائية)
+# Scheduler (يحترم التجاوز اليدوي)
 # =============================
 async def scheduler():
     while True:
-        cursor.execute("SELECT chat_id, closed FROM settings")
+        cursor.execute("SELECT chat_id, closed, manually_closed, manually_opened FROM settings")
         rows = cursor.fetchall()
-        for chat_id, closed in rows:
-            if is_closed_time() and closed == 0:
-                await auto_close_group(chat_id)
-                cursor.execute("UPDATE settings SET closed=1 WHERE chat_id=?", (chat_id,))
-                conn.commit()
-            elif not is_closed_time() and closed == 1:
-                await auto_open_group(chat_id)
-                cursor.execute("UPDATE settings SET closed=0 WHERE chat_id=?", (chat_id,))
-                conn.commit()
+        for chat_id, closed, manually_closed, manually_opened in rows:
+            # وقت الإغلاق التلقائي
+            if is_closed_time():
+                # إذا كانت المجموعة مفتوحة وليس هناك تجاوز يدوي للفتح، نغلقها
+                if closed == 0 and manually_opened == 0:
+                    await auto_close_group(chat_id)
+            # وقت الفتح التلقائي
+            else:
+                # إذا كانت المجموعة مغلقة وليس هناك تجاوز يدوي للإغلاق، نفتحها
+                if closed == 1 and manually_closed == 0:
+                    await auto_open_group(chat_id)
         await asyncio.sleep(60)
 
 # =============================
@@ -171,7 +204,7 @@ async def tabuk(message: types.Message):
         "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
         "قناة نماذج Ai التعليمية\nhttps://t.me/eduai_ksa\n\n"
         "قروب ( نماذج Ai التعليمية ) 💬\nhttps://t.me/eduai_ksa1\n\n"
-        "/n/nأضفني للقروب وارفعني مشرف للحماية./n/n"
+        "\n\nأضفني للقروب وارفعني مشرف للحماية.\n\n"
         "برمجة الاستاذ عبدالله البلوي"
     )
     if message.chat.type == ChatType.PRIVATE:
@@ -182,7 +215,7 @@ async def tabuk(message: types.Message):
             reply_markup=admin_keyboard()
         )
         cursor.execute(
-            "INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)",
+            "INSERT OR IGNORE INTO settings(chat_id, links, closed, manually_closed, manually_opened) VALUES (?,0,0,0,0)",
             (message.chat.id,)
         )
         conn.commit()
@@ -209,15 +242,19 @@ async def security(message: types.Message):
     if await is_admin(chat_id, user_id):
         return
 
-    if is_closed_time():
+    # إذا المجموعة مقفولة (يدوياً أو تلقائياً)
+    cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
+    row = cursor.fetchone()
+    if row and row[0] == 1:
         await message.delete()
         return
 
+    # فحص الروابط
     if has_link(message.text):
         await message.delete()
         count = add_warning(chat_id, user_id)
         if count >= 3:
-            # تعديل المدة إلى ساعة واحدة
+            # كتم لمدة ساعة
             await bot.restrict_chat_member(
                 chat_id,
                 user_id,
@@ -233,12 +270,6 @@ async def security(message: types.Message):
 # =============================
 @dp.message(Command("mute"))
 async def mute_command(message: types.Message):
-    """كتم عضو معين مع مدة محددة.
-    الاستخدام:
-        /mute 1h      (بالرد على رسالة العضو)
-        /mute 30m @username
-        /mute 2d      (بالرد أو بذكر العضو)
-    """
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -246,14 +277,16 @@ async def mute_command(message: types.Message):
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
-    # استخراج المدة من الرسالة
     parts = message.text.split()
     if len(parts) < 2:
-        await message.reply("⚠️ يرجى تحديد المدة، مثال:\n`/mute 1h` (بالرد على رسالة العضو)\n`/mute 30m @username`")
+        await message.reply(
+            "⚠️ يرجى تحديد المدة، مثال:\n"
+            "`/mute 1h` (بالرد على رسالة العضو)\n"
+            "`/mute 30m @username`"
+        )
         return
 
     duration_str = parts[1].lower()
-    # تحويل المدة إلى timedelta
     delta = None
     match = re.match(r"^(\d+)([smhd])$", duration_str)
     if match:
@@ -271,28 +304,24 @@ async def mute_command(message: types.Message):
         await message.reply("❌ صيغة المدة غير صحيحة.\nاستخدم `30m`, `1h`, `2d`, `10s` ...")
         return
 
-    # تحديد العضو المراد كتمه
+    # تحديد العضو المستهدف
     target_user = None
     if message.reply_to_message:
         target_user = message.reply_to_message.from_user
     else:
-        # محاولة استخراج @username من النص
         if len(parts) >= 3:
             username = parts[2].lstrip('@')
             try:
-                # الحصول على معلومات العضو عبر اسم المستخدم
-                chat = await bot.get_chat(chat_id)
                 async for member in bot.get_chat_members(chat_id):
                     if member.user.username and member.user.username.lower() == username.lower():
                         target_user = member.user
                         break
             except:
                 pass
-        if not target_user:
-            await message.reply("❌ لم يتم العثور على العضو. تأكد من الرد على رسالته أو ذكر معرفه بشكل صحيح.")
-            return
+    if not target_user:
+        await message.reply("❌ لم يتم العثور على العضو. تأكد من الرد على رسالته أو ذكر معرفه.")
+        return
 
-    # لا يمكن كتم المشرفين
     if await is_admin(chat_id, target_user.id):
         await message.reply("❌ لا يمكن كتم مشرف.")
         return
@@ -332,17 +361,11 @@ async def callbacks(call: types.CallbackQuery):
         cursor.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,))
         conn.commit()
         await call.message.answer("🧹 تم تصفير التحذيرات")
-
-    # 🆕 أزرار قفل/فتح المجموعة - يدوي (رسالة مبسطة)
     elif call.data == "close_group":
         await manual_close_group(chat_id)
-        cursor.execute("UPDATE settings SET closed=1 WHERE chat_id=?", (chat_id,))
-        conn.commit()
         await call.answer("🔒 تم قفل المجموعة")
     elif call.data == "open_group":
         await manual_open_group(chat_id)
-        cursor.execute("UPDATE settings SET closed=0 WHERE chat_id=?", (chat_id,))
-        conn.commit()
         await call.answer("🔓 تم فتح المجموعة")
 
 # =============================

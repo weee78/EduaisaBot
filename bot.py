@@ -10,27 +10,27 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from aiogram.enums import ChatType
 
-# =============================
+# ====================================
 # TOKEN
-# =============================
+# ====================================
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
-# =============================
-# TIMEZONE
-# =============================
+# ====================================
+# TIMEZONE (مكة)
+# ====================================
 MECCA = pytz.timezone("Asia/Riyadh")
 
-# =============================
-# Logging
-# =============================
+# ====================================
+# LOGGING
+# ====================================
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# =============================
-# Database
-# =============================
+# ====================================
+# DATABASE
+# ====================================
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
@@ -52,9 +52,9 @@ closed INTEGER DEFAULT 0
 
 conn.commit()
 
-# =============================
-# Keyboard
-# =============================
+# ====================================
+# لوحة تحكم المشرف
+# ====================================
 def admin_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -68,20 +68,19 @@ def admin_keyboard():
         ]
     )
 
-# =============================
-# Admin check
-# =============================
+# ====================================
+# تحقق مشرف
+# ====================================
 async def is_admin(chat_id, user_id):
     member = await bot.get_chat_member(chat_id, user_id)
     return member.status in ["administrator", "creator"]
 
-# =============================
-# Time check
-# =============================
+# ====================================
+# تحقق وقت الإغلاق
+# ====================================
 def is_closed_time():
 
     now = datetime.now(MECCA)
-
     hour = now.hour
 
     if hour >= 23 or hour < 7:
@@ -89,9 +88,9 @@ def is_closed_time():
 
     return False
 
-# =============================
-# Close / Open Group
-# =============================
+# ====================================
+# إغلاق القروب
+# ====================================
 async def close_group(chat_id):
 
     await bot.set_chat_permissions(
@@ -102,10 +101,13 @@ async def close_group(chat_id):
     await bot.send_message(
         chat_id,
         "🔴 القروب مغلق الآن\n"
-        "⏰ من الساعة 11 مساءً إلى 7 صباحاً\n"
+        "⏰ من 11 مساءً إلى 7 صباحاً\n"
         "بتوقيت مكة المكرمة"
     )
 
+# ====================================
+# فتح القروب
+# ====================================
 async def open_group(chat_id):
 
     await bot.set_chat_permissions(
@@ -123,17 +125,14 @@ async def open_group(chat_id):
         "مرحباً بكم 🌿"
     )
 
-# =============================
+# ====================================
 # Scheduler
-# =============================
+# ====================================
 async def scheduler():
 
     while True:
 
-        now = datetime.now(MECCA)
-
         cursor.execute("SELECT chat_id, closed FROM settings")
-
         rows = cursor.fetchall()
 
         for chat_id, closed in rows:
@@ -146,7 +145,6 @@ async def scheduler():
                     "UPDATE settings SET closed=1 WHERE chat_id=?",
                     (chat_id,)
                 )
-
                 conn.commit()
 
             elif not is_closed_time() and closed == 1:
@@ -157,26 +155,24 @@ async def scheduler():
                     "UPDATE settings SET closed=0 WHERE chat_id=?",
                     (chat_id,)
                 )
-
                 conn.commit()
 
         await asyncio.sleep(60)
 
-# =============================
-# Link detect
-# =============================
+# ====================================
+# اكتشاف الروابط
+# ====================================
 def has_link(text):
 
     if not text:
         return False
 
     pattern = r"(https?://|www\.|t\.me)"
-
     return re.search(pattern, text.lower())
 
-# =============================
-# Warnings
-# =============================
+# ====================================
+# التحذيرات
+# ====================================
 def get_warnings(chat_id, user_id):
 
     cursor.execute(
@@ -184,9 +180,9 @@ def get_warnings(chat_id, user_id):
         (chat_id, user_id)
     )
 
-    r = cursor.fetchone()
+    result = cursor.fetchone()
 
-    return r[0] if r else 0
+    return result[0] if result else 0
 
 
 def add_warning(chat_id, user_id):
@@ -207,9 +203,9 @@ def add_warning(chat_id, user_id):
 
     return count
 
-# =============================
-# Start
-# =============================
+# ====================================
+# START
+# ====================================
 @dp.message(Command("start"))
 async def start(message: types.Message):
 
@@ -227,36 +223,42 @@ async def start(message: types.Message):
     if message.chat.type == ChatType.PRIVATE:
 
         await message.answer(text)
+        return
 
-    else:
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    cursor.execute(
+        "INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)",
+        (chat_id,)
+    )
+    conn.commit()
+
+    if await is_admin(chat_id, user_id):
 
         await message.reply(
-            "✅ تم تفعيل الحماية",
+            "✅ تم تفعيل الحماية\n"
+            "🔧 لوحة تحكم المشرف:",
             reply_markup=admin_keyboard()
         )
 
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings(chat_id, links, closed) VALUES (?,0,0)",
-            (message.chat.id,)
-        )
+    else:
 
-        conn.commit()
+        await message.reply("✅ البوت يعمل بنجاح")
 
-# =============================
-# Welcome
-# =============================
+# ====================================
+# ترحيب
+# ====================================
 @dp.message(F.new_chat_members)
 async def welcome(message: types.Message):
 
     for user in message.new_chat_members:
 
-        await message.reply(
-            f"👋 مرحباً {user.first_name}"
-        )
+        await message.reply(f"👋 مرحباً {user.first_name}")
 
-# =============================
-# Security
-# =============================
+# ====================================
+# الحماية
+# ====================================
 @dp.message(F.text)
 async def security(message: types.Message):
 
@@ -272,7 +274,6 @@ async def security(message: types.Message):
     if is_closed_time():
 
         await message.delete()
-
         return
 
     if has_link(message.text):
@@ -290,19 +291,25 @@ async def security(message: types.Message):
                 until_date=datetime.now(MECCA) + timedelta(minutes=10)
             )
 
-            await message.answer("🔇 تم كتم العضو")
+            await message.answer("🔇 تم كتم العضو 10 دقائق")
 
         else:
 
             await message.answer(f"⚠️ تحذير {count}/3")
 
-# =============================
+# ====================================
 # Callbacks
-# =============================
+# ====================================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
 
     chat_id = call.message.chat.id
+    user_id = call.from_user.id
+
+    if not await is_admin(chat_id, user_id):
+
+        await call.answer("❌ للمشرفين فقط", show_alert=True)
+        return
 
     if call.data == "enable_links":
 
@@ -310,7 +317,6 @@ async def callbacks(call: types.CallbackQuery):
             "UPDATE settings SET links=1 WHERE chat_id=?",
             (chat_id,)
         )
-
         conn.commit()
 
         await call.message.answer("✅ تم فتح الروابط")
@@ -321,7 +327,6 @@ async def callbacks(call: types.CallbackQuery):
             "UPDATE settings SET links=0 WHERE chat_id=?",
             (chat_id,)
         )
-
         conn.commit()
 
         await call.message.answer("🔒 تم قفل الروابط")
@@ -332,17 +337,16 @@ async def callbacks(call: types.CallbackQuery):
             "DELETE FROM warnings WHERE chat_id=?",
             (chat_id,)
         )
-
         conn.commit()
 
         await call.message.answer("🧹 تم تصفير التحذيرات")
 
-# =============================
-# Main
-# =============================
+# ====================================
+# MAIN
+# ====================================
 async def main():
 
-    print("🔥 Bot Running")
+    print("🔥 Eduai-sa Professional Bot Running")
 
     asyncio.create_task(scheduler())
 

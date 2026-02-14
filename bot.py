@@ -24,9 +24,10 @@ def mecca_now():
     return utc_now() + timedelta(hours=3)
 
 # =============================
-# قائمة الكلمات الممنوعة (نفس السابق)
+# قائمة الكلمات الممنوعة (موسعة)
 # =============================
 BANNED_WORDS = [
+    # كلمات خارجة / نابية
     "كس", "زب", "طيز", "شرج", "بظر", "فرج",
     "نيك", "ينيك", "انيك", "نيكني", "ينيكك",
     "متناك", "منيوك", "منيوكة", "منيوكين",
@@ -40,6 +41,7 @@ BANNED_WORDS = [
     "سالب", "موجب", "مبادل",
     "محارم", "سفاح", "سفاحين",
     "اغتصاب", "مغتصب", "مغتصبة",
+    # سب وقذف
     "لعن", "اللعنة", "ملعون",
     "كلب", "كلبة", "كلاب",
     "خنزير", "خنزيرة",
@@ -58,6 +60,7 @@ BANNED_WORDS = [
     "خبيث", "خبيثة",
     "نذل", "نذلة",
     "وغد", "وغدة",
+    # عيب وشتم
     "عيب", "حرام",
     "فاسق", "فاسقة",
     "فاجر", "فاجرة",
@@ -67,6 +70,7 @@ BANNED_WORDS = [
     "منافق", "منافقة",
     "مرتزق", "مرتزقة",
     "عميل", "عملاء",
+    # ألفاظ جنسية صريحة
     "سكس", "سكسي", "بورن", "إباحي", "إباحية",
     "سكربت", "سكربتات",
     "عري", "عرايا",
@@ -75,6 +79,7 @@ BANNED_WORDS = [
     "مقبلات", "مداعبات",
     "رومانسية", "رومانسي",
     "ليالي حب", "ليالي الدخلة",
+    # كلمات طبية غير مرغوب فيها
     "اجازة مرضية", "سكليف", "تقرير طبي",
     "شهادة مرضية", "عذر طبي",
     "مرض", "مرضى", "مريض",
@@ -256,8 +261,10 @@ def add_warning(chat_id, user_id):
     return count
 
 # =============================
-# Start
+# المعالجات (مرتبة حسب الأولوية)
 # =============================
+
+# 1. أوامر البوت الأساسية
 @dp.message(Command("start"))
 async def tabuk(message: types.Message):
     text = (
@@ -278,64 +285,7 @@ async def tabuk(message: types.Message):
         )
         conn.commit()
 
-# =============================
-# Welcome
-# =============================
-@dp.message(F.new_chat_members)
-async def welcome(message: types.Message):
-    for user in message.new_chat_members:
-        if user.id == bot.id:
-            continue
-        await message.reply(f"👋 مرحباً {user.first_name}")
-
-# =============================
-# Security (الحماية التلقائية)
-# =============================
-@dp.message(F.text)
-async def security(message: types.Message):
-    if message.chat.type not in ["group", "supergroup"]:
-        return
-
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-
-    if await is_admin(chat_id, user_id):
-        return
-
-    cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
-    row = cursor.fetchone()
-    if row and row[0] == 1:
-        await message.delete()
-        return
-
-    cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
-    row = cursor.fetchone()
-    links_enabled = row[0] if row else 0
-
-    violated = False
-    if not links_enabled and has_link(message.text):
-        violated = True
-    if contains_banned_content(message.text):
-        violated = True
-
-    if violated:
-        await message.delete()
-        count = add_warning(chat_id, user_id)
-        if count >= 3:
-            until = int((utc_now() + timedelta(hours=1)).timestamp())
-            await bot.restrict_chat_member(
-                chat_id,
-                user_id,
-                ChatPermissions(can_send_messages=False),
-                until_date=until
-            )
-            await message.answer("🔇 تم كتم العضو ساعة واحدة")
-        else:
-            await message.answer(f"⚠️ تحذير {count}/3")
-
-# =============================
-# معالج /mute (نسخة مبسطة مع تشخيص)
-# =============================
+# 2. أمر mute (يجب أن يكون قبل security)
 @dp.message(F.text.startswith("/mute"))
 async def mute_simple(message: types.Message):
     print("✅ دالة mute_simple تم استدعاؤها")
@@ -415,6 +365,61 @@ async def mute_simple(message: types.Message):
     except Exception as e:
         await message.reply(f"❌ فشل الكتم: {e}")
         print(f"❌ خطأ restrict: {e}")
+
+# 3. رسائل الترحيب
+@dp.message(F.new_chat_members)
+async def welcome(message: types.Message):
+    for user in message.new_chat_members:
+        if user.id == bot.id:
+            continue
+        await message.reply(f"👋 مرحباً {user.first_name}")
+
+# 4. الحماية التلقائية (تجاهل الأوامر)
+@dp.message(F.text)
+async def security(message: types.Message):
+    # تجاهل أي رسالة تبدأ بـ "/" (الأوامر)
+    if message.text.startswith("/"):
+        return
+
+    if message.chat.type not in ["group", "supergroup"]:
+        return
+
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    if await is_admin(chat_id, user_id):
+        return
+
+    cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
+    row = cursor.fetchone()
+    if row and row[0] == 1:
+        await message.delete()
+        return
+
+    cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
+    row = cursor.fetchone()
+    links_enabled = row[0] if row else 0
+
+    violated = False
+    if not links_enabled and has_link(message.text):
+        violated = True
+    if contains_banned_content(message.text):
+        violated = True
+
+    if violated:
+        await message.delete()
+        count = add_warning(chat_id, user_id)
+        if count >= 3:
+            until = int((utc_now() + timedelta(hours=1)).timestamp())
+            await bot.restrict_chat_member(
+                chat_id,
+                user_id,
+                ChatPermissions(can_send_messages=False),
+                until_date=until
+            )
+            await message.answer("🔇 تم كتم العضو ساعة واحدة")
+        else:
+            await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
 # Callbacks

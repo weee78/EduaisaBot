@@ -15,21 +15,18 @@ from aiogram.enums import ChatType
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
 # =============================
-# TIME FUNCTIONS (معيار UTC)
+# TIME FUNCTIONS
 # =============================
 def utc_now():
-    """ترجع الوقت الحالي بتوقيت UTC مع الـ timezone"""
     return datetime.now(timezone.utc)
 
 def mecca_now():
-    """ترجع الوقت الحالي بتوقيت مكة المكرمة (للمقارنة فقط)"""
     return utc_now() + timedelta(hours=3)
 
 # =============================
-# قائمة الكلمات الممنوعة (موسعة)
+# قائمة الكلمات الممنوعة (نفس السابق)
 # =============================
 BANNED_WORDS = [
-    # كلمات خارجة / نابية
     "كس", "زب", "طيز", "شرج", "بظر", "فرج",
     "نيك", "ينيك", "انيك", "نيكني", "ينيكك",
     "متناك", "منيوك", "منيوكة", "منيوكين",
@@ -43,7 +40,6 @@ BANNED_WORDS = [
     "سالب", "موجب", "مبادل",
     "محارم", "سفاح", "سفاحين",
     "اغتصاب", "مغتصب", "مغتصبة",
-    # سب وقذف
     "لعن", "اللعنة", "ملعون",
     "كلب", "كلبة", "كلاب",
     "خنزير", "خنزيرة",
@@ -62,7 +58,6 @@ BANNED_WORDS = [
     "خبيث", "خبيثة",
     "نذل", "نذلة",
     "وغد", "وغدة",
-    # عيب وشتم
     "عيب", "حرام",
     "فاسق", "فاسقة",
     "فاجر", "فاجرة",
@@ -72,7 +67,6 @@ BANNED_WORDS = [
     "منافق", "منافقة",
     "مرتزق", "مرتزقة",
     "عميل", "عملاء",
-    # ألفاظ جنسية صريحة
     "سكس", "سكسي", "بورن", "إباحي", "إباحية",
     "سكربت", "سكربتات",
     "عري", "عرايا",
@@ -81,7 +75,6 @@ BANNED_WORDS = [
     "مقبلات", "مداعبات",
     "رومانسية", "رومانسي",
     "ليالي حب", "ليالي الدخلة",
-    # كلمات طبية غير مرغوب فيها
     "اجازة مرضية", "سكليف", "تقرير طبي",
     "شهادة مرضية", "عذر طبي",
     "مرض", "مرضى", "مريض",
@@ -105,7 +98,7 @@ def contains_banned_content(text: str) -> bool:
     return False
 
 # =============================
-# Logging & Bot
+# Logging
 # =============================
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -137,7 +130,7 @@ CREATE TABLE IF NOT EXISTS settings (
 conn.commit()
 
 # =============================
-# لوحة التحكم
+# Keyboard
 # =============================
 def admin_keyboard():
     return InlineKeyboardMarkup(
@@ -167,14 +160,14 @@ async def is_admin(chat_id, user_id):
         return False
 
 # =============================
-# Time check (للمجدول)
+# Time check
 # =============================
 def is_closed_time():
     now = mecca_now()
     return now.hour >= 23 or now.hour < 7
 
 # =============================
-# إجراءات القفل/الفتح التلقائي واليدوي
+# Group open/close functions (نفس السابق)
 # =============================
 async def auto_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
@@ -341,10 +334,10 @@ async def security(message: types.Message):
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# الأمر /mute (يعمل بالرد فقط) - النسخة النهائية
+# الأمر /mute - معالج مباشر للنص (بدون الاعتماد على Command)
 # =============================
-@dp.message(Command("mute"))
-async def mute_command(message: types.Message):
+@dp.message(F.text.startswith("/mute"))
+async def mute_handler(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -353,12 +346,12 @@ async def mute_command(message: types.Message):
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
-    # تحقق من وجود رد
+    # تحقق من الرد على رسالة
     if not message.reply_to_message:
         await message.reply("⚠️ يجب الرد على رسالة العضو الذي تريد كتمه.")
         return
 
-    # تحقق من صيغة المدة
+    # استخراج المدة من النص
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("⚠️ يرجى تحديد المدة، مثال: `/mute 1h` عند الرد على العضو.")
@@ -399,7 +392,7 @@ async def mute_command(message: types.Message):
         await message.reply(f"❌ خطأ في التحقق من صلاحيات البوت: {e}")
         return
 
-    # حساب وقت انتهاء الكتم بصيغة timestamp صحيحة
+    # حساب وقت انتهاء الكتم
     until = int((utc_now() + delta).timestamp())
 
     try:

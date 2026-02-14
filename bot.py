@@ -167,7 +167,7 @@ def is_closed_time():
     return now.hour >= 23 or now.hour < 7
 
 # =============================
-# Group open/close functions (نفس السابق)
+# Group open/close functions
 # =============================
 async def auto_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
@@ -334,10 +334,15 @@ async def security(message: types.Message):
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# الأمر /mute - معالج مباشر للنص (بدون الاعتماد على Command)
+# معالج /mute (نسخة مبسطة مع تشخيص)
 # =============================
 @dp.message(F.text.startswith("/mute"))
-async def mute_handler(message: types.Message):
+async def mute_simple(message: types.Message):
+    print("✅ دالة mute_simple تم استدعاؤها")
+    print(f"📩 الرسالة: {message.text}")
+    print(f"👤 من: {message.from_user.first_name} (ID: {message.from_user.id})")
+    print(f"💬 رد على: {message.reply_to_message}")
+
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -346,15 +351,15 @@ async def mute_handler(message: types.Message):
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
-    # تحقق من الرد على رسالة
+    # تحقق من الرد
     if not message.reply_to_message:
         await message.reply("⚠️ يجب الرد على رسالة العضو الذي تريد كتمه.")
         return
 
-    # استخراج المدة من النص
+    # تحقق من صيغة المدة
     parts = message.text.split()
     if len(parts) < 2:
-        await message.reply("⚠️ يرجى تحديد المدة، مثال: `/mute 1h` عند الرد على العضو.")
+        await message.reply("⚠️ يرجى تحديد المدة، مثال: `/mute 1h`")
         return
 
     duration_str = parts[1].lower()
@@ -372,12 +377,12 @@ async def mute_handler(message: types.Message):
         elif unit == 'd':
             delta = timedelta(days=value)
     if not delta:
-        await message.reply("❌ صيغة المدة غير صحيحة.\nاستخدم `30m`, `1h`, `2d`, `10s` ...")
+        await message.reply("❌ صيغة المدة غير صحيحة.\nاستخدم `30m`, `1h`, `2d`...")
         return
 
     target_user = message.reply_to_message.from_user
 
-    # لا يمكن كتم المشرفين
+    # لا يمكن كتم مشرف
     if await is_admin(chat_id, target_user.id):
         await message.reply("❌ لا يمكن كتم مشرف.")
         return
@@ -385,8 +390,11 @@ async def mute_handler(message: types.Message):
     # تحقق من صلاحية البوت
     try:
         bot_member = await bot.get_chat_member(chat_id, bot.id)
-        if bot_member.status != "administrator" or not bot_member.can_restrict_members:
-            await message.reply("❌ البوت ليس لديه صلاحية كتم الأعضاء. قم برفعه مشرف مع صلاحية 'تقييد الأعضاء'.")
+        if bot_member.status != "administrator":
+            await message.reply("❌ البوت ليس مشرفاً في هذه المجموعة. قم برفعه مشرف أولاً.")
+            return
+        if not bot_member.can_restrict_members:
+            await message.reply("❌ البوت مشرف لكن ليس لديه صلاحية 'تقييد الأعضاء'. فعّل هذه الصلاحية.")
             return
     except Exception as e:
         await message.reply(f"❌ خطأ في التحقق من صلاحيات البوت: {e}")
@@ -394,6 +402,7 @@ async def mute_handler(message: types.Message):
 
     # حساب وقت انتهاء الكتم
     until = int((utc_now() + delta).timestamp())
+    print(f"⏰ وقت الانتهاء (timestamp): {until}")
 
     try:
         await bot.restrict_chat_member(
@@ -405,6 +414,7 @@ async def mute_handler(message: types.Message):
         await message.reply(f"🔇 تم كتم {target_user.first_name} لمدة {duration_str}.")
     except Exception as e:
         await message.reply(f"❌ فشل الكتم: {e}")
+        print(f"❌ خطأ restrict: {e}")
 
 # =============================
 # Callbacks

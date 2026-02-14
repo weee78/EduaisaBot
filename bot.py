@@ -380,6 +380,15 @@ def add_warning(chat_id, user_id):
     return count
 
 # =============================
+# معالج تشخيصي لكل الرسائل (للتأكد من وصول /ask)
+# =============================
+@dp.message()
+async def debug_all_messages(message: types.Message):
+    print(f"📨 رسالة واردة: {message.text} من {message.from_user.id} في {message.chat.id}")
+    # نمرر الرسالة لبقية المعالجات (لا نريد منعها)
+    # لا نستخدم await لأننا لا نريد التدخل
+
+# =============================
 # الأمر /start
 # =============================
 @dp.message(Command("start"))
@@ -395,7 +404,6 @@ async def tabuk(message: types.Message):
     if message.chat.type == ChatType.PRIVATE:
         await message.answer(text)
     else:
-        # إرسال لوحة المفاتيح المناسبة للمجموعة
         await message.reply(
             "✅ تم تفعيل الحماية",
             reply_markup=admin_keyboard(message.chat.id)
@@ -530,16 +538,18 @@ async def mute_command(message: types.Message):
         await message.reply(f"❌ فشل الكتم: {e}")
 
 # =============================
-# الأمر /ask (يعمل فقط في المجموعة الخاصة)
+# الأمر /ask (يعمل فقط في المجموعة الخاصة) - مع فلترين للتأكد
 # =============================
 @dp.message(F.text.startswith("/ask"))
 async def ask_command(message: types.Message):
-    chat_id = message.chat.id
-    print(f"📩 تم استدعاء /ask في المجموعة: {chat_id}")
+    print("🔥 دالة ask_command استدعيت!")
+    print(f"📌 النص: {message.text}")
+    print(f"👤 المستخدم: {message.from_user.id}")
+    print(f"💬 المجموعة: {message.chat.id}")
 
-    # إذا لم تكن هذه المجموعة الخاصة، نرفض
+    chat_id = message.chat.id
     if chat_id != OWNER_GROUP_ID:
-        await message.reply("❌ هذه الميزة متاحة فقط في المجموعة الرسمية للبوت.")
+        await message.reply("❌ هذه الميزة متاحة فقط في المجموعة الرسمية.")
         return
 
     user_id = message.from_user.id

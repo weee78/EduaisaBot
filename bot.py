@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -22,7 +22,7 @@ def mecca_now():
     return datetime.utcnow() + timedelta(hours=3)
 
 def utc_now():
-    """ترجع الوقت الحالي بتوقيت UTC لاستخدامه مع until_date"""
+    """ترجع الوقت الحالي بتوقيت UTC"""
     return datetime.utcnow()
 
 # =============================
@@ -88,7 +88,7 @@ BANNED_WORDS = [
     "مستشفى", "عيادة",
     "دواء", "أدوية",
     "علاج", "معالجة",
-    "وصفة طبية", "روشتة","وصفة طبية", "روشتة","خرى","خرا", "زق",
+    " زق", "روشتة","وصفة طبية", "روشتة","خرى","خرا"
 ]
 
 # نمط أرقام الجوال السعودي (05xxxxxxxx أو 9665xxxxxxxx)
@@ -162,8 +162,11 @@ def admin_keyboard():
 # Admin check
 # =============================
 async def is_admin(chat_id, user_id):
-    member = await bot.get_chat_member(chat_id, user_id)
-    return member.status in ["administrator", "creator"]
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        return member.status in ["administrator", "creator"]
+    except:
+        return False
 
 # =============================
 # Time check (للمجدول)
@@ -173,7 +176,7 @@ def is_closed_time():
     return now.hour >= 23 or now.hour < 7
 
 # =============================
-# الإغلاق والفتح التلقائي (مع رسالة الوقت)
+# الإغلاق والفتح التلقائي
 # =============================
 async def auto_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
@@ -204,7 +207,7 @@ async def auto_open_group(chat_id):
     conn.commit()
 
 # =============================
-# الإغلاق والفتح اليدوي (بدون رسالة الوقت)
+# الإغلاق والفتح اليدوي
 # =============================
 async def manual_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
@@ -353,28 +356,31 @@ async def security(message: types.Message):
                 chat_id,
                 user_id,
                 ChatPermissions(can_send_messages=False),
-                until_date=utc_now() + timedelta(hours=1)
+                until_date=int((utc_now() + timedelta(hours=1)).timestamp())
             )
             await message.answer("🔇 تم كتم العضو ساعة واحدة")
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# الأمر /mute (يعمل فقط بالرد)
+# الأمر /mute (يعمل بالرد فقط)
 # =============================
 @dp.message(Command("mute"))
 async def mute_command(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
+    # تحقق من أن المستخدم مشرف
     if not await is_admin(chat_id, user_id):
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
+    # تحقق من وجود رد على رسالة
     if not message.reply_to_message:
         await message.reply("⚠️ يجب الرد على رسالة العضو الذي تريد كتمه.")
         return
 
+    # تحقق من صيغة المدة
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("⚠️ يرجى تحديد المدة، مثال: `/mute 1h` عند الرد على العضو.")
@@ -400,16 +406,29 @@ async def mute_command(message: types.Message):
 
     target_user = message.reply_to_message.from_user
 
+    # لا يمكن كتم المشرفين
     if await is_admin(chat_id, target_user.id):
         await message.reply("❌ لا يمكن كتم مشرف.")
         return
 
+    # تحقق من أن البوت لديه صلاحية كتم الأعضاء
     try:
+        bot_member = await bot.get_chat_member(chat_id, bot.id)
+        if bot_member.status != "administrator" or not bot_member.can_restrict_members:
+            await message.reply("❌ البوت ليس لديه صلاحية كتم الأعضاء. قم برفعه مشرف مع صلاحية 'تقييد الأعضاء'.")
+            return
+    except Exception as e:
+        await message.reply(f"❌ خطأ في التحقق من صلاحيات البوت: {e}")
+        return
+
+    # تنفيذ الكتم
+    try:
+        until_timestamp = int((utc_now() + delta).timestamp())
         await bot.restrict_chat_member(
             chat_id,
             target_user.id,
-            ChatPermissions(can_send_messages=False),
-            until_date=utc_now() + delta
+            permissions=ChatPermissions(can_send_messages=False),
+            until_date=until_timestamp
         )
         await message.reply(f"🔇 تم كتم {target_user.first_name} لمدة {duration_str}.")
     except Exception as e:

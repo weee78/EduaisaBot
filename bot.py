@@ -15,11 +15,15 @@ from aiogram.enums import ChatType
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
 # =============================
-# TIMEZONE (توقيت مكة = UTC+3)
+# TIMEZONE FUNCTIONS
 # =============================
 def mecca_now():
-    """ترجع الوقت الحالي بتوقيت مكة المكرمة (UTC+3)"""
+    """ترجع الوقت الحالي بتوقيت مكة المكرمة (UTC+3) للمقارنة فقط"""
     return datetime.utcnow() + timedelta(hours=3)
+
+def utc_now():
+    """ترجع الوقت الحالي بتوقيت UTC لاستخدامه مع until_date"""
+    return datetime.utcnow()
 
 # =============================
 # قائمة الكلمات الممنوعة (موسعة)
@@ -77,15 +81,14 @@ BANNED_WORDS = [
     "مقبلات", "مداعبات",
     "رومانسية", "رومانسي",
     "ليالي حب", "ليالي الدخلة",
-    # كلمات طبية غير مرغوب فيها (مثل التي طلبتها)
+    # كلمات طبية غير مرغوب فيها
     "اجازة مرضية", "سكليف", "تقرير طبي",
     "شهادة مرضية", "عذر طبي",
     "مرض", "مرضى", "مريض",
     "مستشفى", "عيادة",
-    "دواء", "أدوية", "طبي",
+    "دواء", "أدوية",
     "علاج", "معالجة",
-    "وصفة طبية", "روشتة","خرى","خرا", "زق","تبن","غبي","اغبياء",
-    # أرقام الجوال (تتم معالجتها عبر نمط منفصل)
+    "وصفة طبية", "روشتة","وصفة طبية", "روشتة","خرى","خرا", "زق",
 ]
 
 # نمط أرقام الجوال السعودي (05xxxxxxxx أو 9665xxxxxxxx)
@@ -95,12 +98,10 @@ def contains_banned_content(text: str) -> bool:
     """التحقق مما إذا كان النص يحتوي على كلمة ممنوعة أو رقم جوال سعودي"""
     if not text:
         return False
-    # فحص الكلمات الممنوعة (تجاهل حالة الأحرف)
     lower_text = text.lower()
     for word in BANNED_WORDS:
         if word in lower_text:
             return True
-    # فحص نمط الأرقام
     if SAUDI_PHONE_PATTERN.search(text):
         return True
     return False
@@ -118,7 +119,6 @@ dp = Dispatcher()
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
-# جدول التحذيرات
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS warnings (
     chat_id INTEGER,
@@ -127,7 +127,6 @@ CREATE TABLE IF NOT EXISTS warnings (
 )
 """)
 
-# جدول الإعدادات
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS settings (
     chat_id INTEGER PRIMARY KEY,
@@ -167,7 +166,7 @@ async def is_admin(chat_id, user_id):
     return member.status in ["administrator", "creator"]
 
 # =============================
-# Time check (للمجدول) - تعتمد على توقيت مكة الحقيقي
+# Time check (للمجدول)
 # =============================
 def is_closed_time():
     now = mecca_now()
@@ -233,7 +232,7 @@ async def manual_open_group(chat_id):
     conn.commit()
 
 # =============================
-# Scheduler - مع طباعة توقيت مكة للتأكد
+# Scheduler
 # =============================
 async def scheduler():
     print("🚀 بدأ المجدول التلقائي - توقيت مكة المكرمة (UTC+3)")
@@ -281,7 +280,7 @@ def add_warning(chat_id, user_id):
     return count
 
 # =============================
-#  (بديل Start)
+# Start
 # =============================
 @dp.message(Command("start"))
 async def tabuk(message: types.Message):
@@ -312,6 +311,8 @@ async def tabuk(message: types.Message):
 @dp.message(F.new_chat_members)
 async def welcome(message: types.Message):
     for user in message.new_chat_members:
+        if user.id == bot.id:
+            continue
         await message.reply(f"👋 مرحباً {user.first_name}")
 
 # =============================
@@ -325,30 +326,22 @@ async def security(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    # تحقق من كونه مشرف
     if await is_admin(chat_id, user_id):
         return
 
-    # إذا المجموعة مقفولة (يدوياً أو تلقائياً)
     cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     if row and row[0] == 1:
         await message.delete()
         return
 
-    # جلب إعدادات الروابط لهذه المجموعة
     cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
-    links_enabled = row[0] if row else 0  # 0 = الروابط مقفولة (ممنوعة)، 1 = مفتوحة (مسموحة)
+    links_enabled = row[0] if row else 0
 
-    # متغير لتحديد ما إذا كانت هناك مخالفة
     violated = False
-
-    # 1️⃣ فحص الروابط إذا كانت ممنوعة
     if not links_enabled and has_link(message.text):
         violated = True
-
-    # 2️⃣ فحص الكلمات الممنوعة (دائماً ممنوعة)
     if contains_banned_content(message.text):
         violated = True
 
@@ -356,19 +349,18 @@ async def security(message: types.Message):
         await message.delete()
         count = add_warning(chat_id, user_id)
         if count >= 3:
-            # كتم لمدة ساعة
             await bot.restrict_chat_member(
                 chat_id,
                 user_id,
                 ChatPermissions(can_send_messages=False),
-                until_date=mecca_now() + timedelta(hours=1)
+                until_date=utc_now() + timedelta(hours=1)
             )
-            await message.answer("🔇 تم كتم العضو 4 ساعات")
+            await message.answer("🔇 تم كتم العضو ساعة واحدة")
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# الأمر /mute لكتم أي عضو مع اختيار المدة
+# الأمر /mute (يعمل فقط بالرد)
 # =============================
 @dp.message(Command("mute"))
 async def mute_command(message: types.Message):
@@ -379,13 +371,13 @@ async def mute_command(message: types.Message):
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
+    if not message.reply_to_message:
+        await message.reply("⚠️ يجب الرد على رسالة العضو الذي تريد كتمه.")
+        return
+
     parts = message.text.split()
     if len(parts) < 2:
-        await message.reply(
-            "⚠️ يرجى تحديد المدة، مثال:\n"
-            "`/mute 1h` (بالرد على رسالة العضو)\n"
-            "`/mute 30m @username`"
-        )
+        await message.reply("⚠️ يرجى تحديد المدة، مثال: `/mute 1h` عند الرد على العضو.")
         return
 
     duration_str = parts[1].lower()
@@ -406,23 +398,7 @@ async def mute_command(message: types.Message):
         await message.reply("❌ صيغة المدة غير صحيحة.\nاستخدم `30m`, `1h`, `2d`, `10s` ...")
         return
 
-    # تحديد العضو المستهدف
-    target_user = None
-    if message.reply_to_message:
-        target_user = message.reply_to_message.from_user
-    else:
-        if len(parts) >= 3:
-            username = parts[2].lstrip('@')
-            try:
-                async for member in bot.get_chat_members(chat_id):
-                    if member.user.username and member.user.username.lower() == username.lower():
-                        target_user = member.user
-                        break
-            except:
-                pass
-    if not target_user:
-        await message.reply("❌ لم يتم العثور على العضو. تأكد من الرد على رسالته أو ذكر معرفه.")
-        return
+    target_user = message.reply_to_message.from_user
 
     if await is_admin(chat_id, target_user.id):
         await message.reply("❌ لا يمكن كتم مشرف.")
@@ -433,7 +409,7 @@ async def mute_command(message: types.Message):
             chat_id,
             target_user.id,
             ChatPermissions(can_send_messages=False),
-            until_date=mecca_now() + delta
+            until_date=utc_now() + delta
         )
         await message.reply(f"🔇 تم كتم {target_user.first_name} لمدة {duration_str}.")
     except Exception as e:

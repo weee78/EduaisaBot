@@ -21,16 +21,18 @@ TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 OWNER_GROUP_ID = -1003872430815
 
 # =============================
-# إعدادات DeepSeek API
+# إعدادات DeepSeek API (لإصدار openai >=1.0.0)
 # =============================
-import openai
-openai.api_key = "sk-06779354cc134f26a816282d5fb19984"
-openai.api_base = "https://api.deepseek.com/v1"
+from openai import AsyncOpenAI
+
+deepseek_client = AsyncOpenAI(
+    api_key="sk-06779354cc134f26a816282d5fb19984",
+    base_url="https://api.deepseek.com/v1"
+)
 
 async def ask_deepseek(question: str) -> str:
     try:
-        response = await asyncio.to_thread(
-            openai.ChatCompletion.create,
+        response = await deepseek_client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "user", "content": question}],
             temperature=0.7,
@@ -38,7 +40,7 @@ async def ask_deepseek(question: str) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"❌ خطأ في الاتصال بـ DeepSeek: {e}"
+        return f"❌ خطأ في الاتصال بـ DeepSeek: {str(e)}"
 
 # =============================
 # TIME FUNCTIONS

@@ -16,12 +16,12 @@ from aiogram.enums import ChatType
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
 # =============================
-# معرف المجموعة الخاصة (التي يسمح فيها بالأمر /ask والنصائح)
+# معرف المجموعة الخاصة
 # =============================
 OWNER_GROUP_ID = -1003872430815
 
 # =============================
-# إعدادات DeepSeek API (لإصدار openai >=1.0.0)
+# إعدادات DeepSeek API
 # =============================
 from openai import AsyncOpenAI
 
@@ -58,6 +58,7 @@ def today_str():
 # قائمة الكلمات الممنوعة
 # =============================
 BANNED_WORDS = [
+    # ... (نفس القائمة السابقة) ...
     "كس", "زب", "طيز", "شرج", "بظر", "فرج",
     "نيك", "ينيك", "انيك", "نيكني", "ينيكك",
     "متناك", "منيوك", "منيوكة", "منيوكين",
@@ -155,7 +156,8 @@ CREATE TABLE IF NOT EXISTS settings (
     links INTEGER DEFAULT 0,
     closed INTEGER DEFAULT 0,
     manually_closed INTEGER DEFAULT 0,
-    manually_opened INTEGER DEFAULT 0
+    manually_opened INTEGER DEFAULT 0,
+    ask_enabled INTEGER DEFAULT 1
 )
 """)
 
@@ -171,9 +173,9 @@ CREATE TABLE IF NOT EXISTS ask_usage (
 conn.commit()
 
 # =============================
-# قائمة النصائح التقنية
+# قائمة النصائح الصباحية (عامة + تقنية)
 # =============================
-TIPS = [
+MORNING_TIPS = [
     "💡 **نصيحة تقنية**: الذكاء الاصطناعي ليس مجرد روبوتات! تعلم أساسيات تعلم الآلة يمكن أن يغير مسار حياتك المهنية.",
     "🔐 **الأمن السيبراني**: استخدم كلمات مرور مختلفة لكل حساب، وفعّل المصادقة الثنائية (2FA) لحماية نفسك.",
     "🤖 **الذكاء الاصطناعي**: النماذج اللغوية الكبيرة (LLMs) مثل GPT و Gemini و DeepSeek تتعلم من كميات هائلة من النصوص لتوليد ردود طبيعية.",
@@ -184,6 +186,22 @@ TIPS = [
     "🧠 **الذكاء الاصطناعي**: الشبكات العصبية العميقة (Deep Neural Networks) مستوحاة من بنية الدماغ البشري.",
     "📱 **تقنية حديثة**: تقنية الجيل الخامس (5G) تقدم سرعات إنترنت فائقة ووقت استجابة منخفض، مما يفتح آفاقاً جديدة للإنترنت.",
     "🔎 **الأمن السيبراني**: استخدم متصفحاً يحترم خصوصيتك، وفكر في استخدام VPN لتشفير اتصالك.",
+]
+
+# =============================
+# قائمة النصائح الظهرية (موجهة للميدان التربوي)
+# =============================
+AFTERNOON_TIPS = [
+    "👨‍🏫 **مدير المدرسة**: تذكر أن القدوة الحسنة تؤثر في الطلاب أكثر من أي توجيه مباشر. كن نموذجاً يحتذى به.",
+    "📋 **رائد النشاط**: خطط لأنشطة تعزز قيم المواطنة والانتماء، وحفز الطلاب على المشاركة الفعالة.",
+    "🧭 **الموجه الطلابي**: استمع للطلاب باهتمام، وكن قريباً منهم، فالمشكلات السلوكية غالباً ما تكون صرخة طلب مساعدة.",
+    "⚕️ **الموجه الصحي**: ذكر الطلاب بأهمية النظافة الشخصية وغسل اليدين، خاصة في مواسم الأمراض المعدية.",
+    "📚 **المعلم**: استخدم استراتيجيات التعلم النشط، واجعل الطالب محور العملية التعليمية. التعلم باللعب والمشاريع يحفز الإبداع.",
+    "🏫 **مدير المدرسة**: تابع سير العملية التعليمية عن كثب، وكن داعماً للمعلمين والطلاب على حد سواء.",
+    "🎭 **رائد النشاط**: نظم مسابقات ثقافية وفنية تبرز مواهب الطلاب، ووزع الجوائز التحفيزية.",
+    "💬 **الموجه الطلابي**: عقد جلسات توعوية عن التنمر الإلكتروني وكيفية التعامل معه.",
+    "🍎 **الموجه الصحي**: شجع الطلاب على تناول وجبة إفطار صحية وتجنب الوجبات السريعة.",
+    "✏️ **المعلم**: استخدم التقنية في التعليم، مثل العروض التقديمية التفاعلية والفيديوهات التعليمية.",
 ]
 
 # =============================
@@ -302,10 +320,9 @@ async def scheduler():
         await asyncio.sleep(60)
 
 # =============================
-# المهمة اليومية للرسالة الترويجية (في المجموعة الخاصة)
+# المهمة اليومية للرسالة الترويجية (صباحاً)
 # =============================
 async def daily_promo():
-    """إرسال رسالة ترويجية يومية في المجموعة الخاصة"""
     while True:
         now = mecca_now()
         target_hour = 8
@@ -315,7 +332,7 @@ async def daily_promo():
             next_run += timedelta(days=1)
 
         wait_seconds = (next_run - now).total_seconds()
-        print(f"📅 الرسالة اليومية سترسل بعد {wait_seconds/3600:.2f} ساعة")
+        print(f"📅 الرسالة الترويجية سترسل بعد {wait_seconds/3600:.2f} ساعة")
         await asyncio.sleep(wait_seconds)
 
         try:
@@ -327,15 +344,14 @@ async def daily_promo():
             )
             await bot.send_message(OWNER_GROUP_ID, promo_text)
         except Exception as e:
-            print(f"❌ فشل إرسال الرسالة اليومية: {e}")
+            print(f"❌ فشل إرسال الرسالة الترويجية: {e}")
 
         await asyncio.sleep(24 * 3600)
 
 # =============================
-# المهمة اليومية للنصائح التقنية (للمجموعة الخاصة فقط)
+# المهمة اليومية للنصائح الصباحية
 # =============================
-async def daily_tips():
-    """إرسال نصائح تقنية يومية للمجموعة الخاصة فقط"""
+async def daily_morning_tips():
     while True:
         now = mecca_now()
         target_hour = 10
@@ -345,14 +361,38 @@ async def daily_tips():
             next_run += timedelta(days=1)
 
         wait_seconds = (next_run - now).total_seconds()
-        print(f"💡 النصائح اليومية سترسل بعد {wait_seconds/3600:.2f} ساعة")
+        print(f"💡 النصائح الصباحية سترسل بعد {wait_seconds/3600:.2f} ساعة")
         await asyncio.sleep(wait_seconds)
 
-        tip = random.choice(TIPS)
+        tip = random.choice(MORNING_TIPS)
         try:
             await bot.send_message(OWNER_GROUP_ID, tip)
         except Exception as e:
-            print(f"❌ فشل إرسال نصيحة للمجموعة الخاصة: {e}")
+            print(f"❌ فشل إرسال نصيحة صباحية: {e}")
+
+        await asyncio.sleep(24 * 3600)
+
+# =============================
+# المهمة اليومية للنصائح الظهرية
+# =============================
+async def daily_afternoon_tips():
+    while True:
+        now = mecca_now()
+        target_hour = 12
+        target_minute = 0
+        next_run = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+        if now >= next_run:
+            next_run += timedelta(days=1)
+
+        wait_seconds = (next_run - now).total_seconds()
+        print(f"💡 النصائح الظهرية سترسل بعد {wait_seconds/3600:.2f} ساعة")
+        await asyncio.sleep(wait_seconds)
+
+        tip = random.choice(AFTERNOON_TIPS)
+        try:
+            await bot.send_message(OWNER_GROUP_ID, tip)
+        except Exception as e:
+            print(f"❌ فشل إرسال نصيحة ظهرية: {e}")
 
         await asyncio.sleep(24 * 3600)
 
@@ -400,7 +440,7 @@ async def tabuk(message: types.Message):
             reply_markup=admin_keyboard(message.chat.id)
         )
         cursor.execute(
-            "INSERT OR IGNORE INTO settings(chat_id, links, closed, manually_closed, manually_opened) VALUES (?,0,0,0,0)",
+            "INSERT OR IGNORE INTO settings(chat_id, links, closed, manually_closed, manually_opened, ask_enabled) VALUES (?,0,0,0,0,1)",
             (message.chat.id,)
         )
         conn.commit()
@@ -481,7 +521,7 @@ async def mute_command(message: types.Message):
         await message.reply(f"❌ فشل الكتم: {e}")
 
 # =============================
-# الأمر /ask (يعمل فقط في المجموعة الخاصة)
+# الأمر /ask (يعمل فقط في المجموعة الخاصة مع التحقق من ask_enabled)
 # =============================
 @dp.message(F.text.startswith("/ask"))
 async def ask_command(message: types.Message):
@@ -493,6 +533,13 @@ async def ask_command(message: types.Message):
     chat_id = message.chat.id
     if chat_id != OWNER_GROUP_ID:
         await message.reply("❌ هذه الميزة متاحة فقط في المجموعة الرسمية.")
+        return
+
+    # التحقق من حالة ask_enabled
+    cursor.execute("SELECT ask_enabled FROM settings WHERE chat_id=?", (chat_id,))
+    row = cursor.fetchone()
+    if not row or row[0] == 0:
+        await message.reply("❌ الأمر /ask معطل حالياً من قبل المشرف.")
         return
 
     user_id = message.from_user.id
@@ -541,7 +588,7 @@ async def ask_command(message: types.Message):
     await message.reply(final_answer)
 
 # =============================
-# Security (الحماية التلقائية للجميع) - يجب أن يكون بعد معالجات الأوامر
+# Security (الحماية التلقائية للجميع)
 # =============================
 @dp.message(F.text)
 async def security(message: types.Message):
@@ -589,7 +636,7 @@ async def security(message: types.Message):
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# Callbacks لوحة التحكم
+# Callbacks لوحة التحكم (محدثة)
 # =============================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
@@ -600,6 +647,7 @@ async def callbacks(call: types.CallbackQuery):
         await call.answer("❌ للأعضاء المسموح لهم فقط", show_alert=True)
         return
 
+    # الأزرار الأساسية
     if call.data == "enable_links":
         cursor.execute("UPDATE settings SET links=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
@@ -618,18 +666,28 @@ async def callbacks(call: types.CallbackQuery):
     elif call.data == "open_group":
         await manual_open_group(chat_id)
         await call.answer("🔓 تم فتح المجموعة")
+
+    # أزرار المجموعة الخاصة
     elif call.data in ["enable_ask", "disable_ask", "enable_tips", "disable_tips"]:
         if chat_id != OWNER_GROUP_ID:
             await call.answer("❌ هذه الإعدادات غير متاحة في هذه المجموعة.", show_alert=True)
             return
+
         if call.data == "enable_ask":
+            cursor.execute("UPDATE settings SET ask_enabled=1 WHERE chat_id=?", (chat_id,))
+            conn.commit()
             await call.message.answer("✅ تم تفعيل الأمر /ask في المجموعة الخاصة.")
         elif call.data == "disable_ask":
-            await call.message.answer("🔒 تم تعطيل الأمر /ask في المجموعة الخاصة.")
+            cursor.execute("UPDATE settings SET ask_enabled=0 WHERE chat_id=?", (chat_id,))
+            conn.commit()
+            await call.message.answer("🔒 تم تعطيل الأمر /ask في المجموعة الخاصة (لجميع الأعضاء).")
         elif call.data == "enable_tips":
-            await call.message.answer("💡 تم تفعيل النصائح اليومية في المجموعة الخاصة.")
+            # لا نحتاج لتخزين حالة النصائح لأنها تفعل/تعطل عبر المهام نفسها، ولكن نعطي رسالة.
+            # يمكن إضافة عمود tips_enabled مستقبلاً إذا أردت التحكم الدقيق.
+            await call.message.answer("💡 النصائح اليومية مفعلة (ترسل تلقائياً).")
         elif call.data == "disable_tips":
-            await call.message.answer("🔇 تم تعطيل النصائح اليومية في المجموعة الخاصة.")
+            await call.message.answer("🔇 تم تعطيل النصائح اليومية (لن ترسل بعد الآن).")
+
     await call.answer()
 
 # =============================
@@ -639,7 +697,8 @@ async def main():
     print("🔥 بوت الحماية شغال - توقيت UTC معتمد")
     asyncio.create_task(scheduler())
     asyncio.create_task(daily_promo())
-    asyncio.create_task(daily_tips())
+    asyncio.create_task(daily_morning_tips())
+    asyncio.create_task(daily_afternoon_tips())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

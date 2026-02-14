@@ -320,7 +320,7 @@ async def daily_promo():
 
         try:
             promo_text = (
-                "🌞 صباح الخير!.\n\n"
+                "🌞 صباح الخير! أنا بوت **نماذج Ai التعليمية**.\n\n"
                 "هل لديك سؤال عن الذكاء الاصطناعي، التعليم، أو أي موضوع آخر؟\n"
                 "اكتب الأمر `/ask` ثم سؤالك، وسأجيبك فوراً! (لديك 5 أسئلة يومياً)\n\n"
                 "جرب الآن، وأخبرني ماذا تريد أن تتعلم اليوم؟ 🚀"
@@ -532,9 +532,10 @@ async def mute_command(message: types.Message):
 # =============================
 # الأمر /ask (يعمل فقط في المجموعة الخاصة)
 # =============================
-@dp.message(Command("ask"))
+@dp.message(F.text.startswith("/ask"))
 async def ask_command(message: types.Message):
     chat_id = message.chat.id
+    print(f"📩 تم استدعاء /ask في المجموعة: {chat_id}")
 
     # إذا لم تكن هذه المجموعة الخاصة، نرفض
     if chat_id != OWNER_GROUP_ID:
@@ -542,7 +543,7 @@ async def ask_command(message: types.Message):
         return
 
     user_id = message.from_user.id
-    question = message.text.replace("/ask", "").strip()
+    question = message.text.replace("/ask", "", 1).strip()
     if not question:
         await message.reply("❌ يرجى كتابة سؤالك بعد الأمر.\nمثال: `/ask ما هو الذكاء الاصطناعي؟`")
         return
@@ -563,7 +564,10 @@ async def ask_command(message: types.Message):
         )
         return
 
-    await bot.send_chat_action(message.chat.id, "typing")
+    # إرسال رسالة فورية بأن السؤال قيد المعالجة
+    processing_msg = await message.reply("⏳ جاري البحث عن إجابة...")
+
+    # استدعاء DeepSeek
     answer = await ask_deepseek(question)
 
     # تحديث عداد الاستخدام
@@ -579,12 +583,13 @@ async def ask_command(message: types.Message):
         )
     conn.commit()
 
-    # حساب عدد الأسئلة المتبقية
     remaining = 5 - (current_usage + 1)
     user_name = message.from_user.first_name
-
     thanks = f"شكراً لك {user_name}! 🤍 تبقى لديك {remaining} أسئلة لهذا اليوم."
     final_answer = f"{thanks}\n\n{answer}"
+
+    # حذف رسالة المعالجة وإرسال الرد
+    await processing_msg.delete()
     await message.reply(final_answer)
 
 # =============================
@@ -626,13 +631,10 @@ async def callbacks(call: types.CallbackQuery):
             return
 
         if call.data == "enable_ask":
-            # لا نحتاج لتخزين حالة ask_enabled لأننا نعتمد على OWNER_GROUP_ID فقط،
-            # لكن يمكننا إرسال رسالة تأكيد.
             await call.message.answer("✅ تم تفعيل الأمر /ask في المجموعة الخاصة.")
         elif call.data == "disable_ask":
             await call.message.answer("🔒 تم تعطيل الأمر /ask في المجموعة الخاصة.")
         elif call.data == "enable_tips":
-            # النصائح مفعلة بشكل دائم في المجموعة الخاصة، لكننا نعطي رسالة.
             await call.message.answer("💡 تم تفعيل النصائح اليومية في المجموعة الخاصة.")
         elif call.data == "disable_tips":
             await call.message.answer("🔇 تم تعطيل النصائح اليومية في المجموعة الخاصة.")

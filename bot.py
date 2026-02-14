@@ -188,7 +188,6 @@ TIPS = [
 # لوحة المفاتيح: تعتمد على المجموعة
 # =============================
 def admin_keyboard(chat_id: int):
-    # الأزرار الأساسية (لجميع المجموعات)
     basic_buttons = [
         [
             InlineKeyboardButton(text="🔓 فتح الروابط", callback_data="enable_links"),
@@ -202,7 +201,6 @@ def admin_keyboard(chat_id: int):
             InlineKeyboardButton(text="🔓 تشغيل المجموعة", callback_data="open_group")
         ]
     ]
-    # إذا كانت هذه هي المجموعة الخاصة، نضيف أزرار إضافية
     if chat_id == OWNER_GROUP_ID:
         extra_buttons = [
             [
@@ -380,15 +378,6 @@ def add_warning(chat_id, user_id):
     return count
 
 # =============================
-# معالج تشخيصي لكل الرسائل (للتأكد من وصول /ask)
-# =============================
-@dp.message()
-async def debug_all_messages(message: types.Message):
-    print(f"📨 رسالة واردة: {message.text} من {message.from_user.id} في {message.chat.id}")
-    # نمرر الرسالة لبقية المعالجات (لا نريد منعها)
-    # لا نستخدم await لأننا لا نريد التدخل
-
-# =============================
 # الأمر /start
 # =============================
 @dp.message(Command("start"))
@@ -423,54 +412,6 @@ async def welcome(message: types.Message):
         if user.id == bot.id:
             continue
         await message.reply(f"👋 مرحباً {user.first_name}")
-
-# =============================
-# Security (الحماية التلقائية للجميع)
-# =============================
-@dp.message(F.text)
-async def security(message: types.Message):
-    if message.text.startswith("/"):
-        return
-
-    if message.chat.type not in ["group", "supergroup"]:
-        return
-
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-
-    if await is_admin(chat_id, user_id):
-        return
-
-    cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
-    row = cursor.fetchone()
-    if row and row[0] == 1:
-        await message.delete()
-        return
-
-    cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
-    row = cursor.fetchone()
-    links_enabled = row[0] if row else 0
-
-    violated = False
-    if not links_enabled and has_link(message.text):
-        violated = True
-    if contains_banned_content(message.text):
-        violated = True
-
-    if violated:
-        await message.delete()
-        count = add_warning(chat_id, user_id)
-        if count >= 3:
-            until = int((utc_now() + timedelta(hours=1)).timestamp())
-            await bot.restrict_chat_member(
-                chat_id,
-                user_id,
-                ChatPermissions(can_send_messages=False),
-                until_date=until
-            )
-            await message.answer("🔇 تم كتم العضو ساعة واحدة")
-        else:
-            await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
 # الأمر /mute (للمشرفين في أي مجموعة)
@@ -538,7 +479,7 @@ async def mute_command(message: types.Message):
         await message.reply(f"❌ فشل الكتم: {e}")
 
 # =============================
-# الأمر /ask (يعمل فقط في المجموعة الخاصة) - مع فلترين للتأكد
+# الأمر /ask (يعمل فقط في المجموعة الخاصة)
 # =============================
 @dp.message(F.text.startswith("/ask"))
 async def ask_command(message: types.Message):
@@ -558,7 +499,6 @@ async def ask_command(message: types.Message):
         await message.reply("❌ يرجى كتابة سؤالك بعد الأمر.\nمثال: `/ask ما هو الذكاء الاصطناعي؟`")
         return
 
-    # تحقق من الاستخدام اليومي
     today = today_str()
     cursor.execute(
         "SELECT count FROM ask_usage WHERE chat_id=? AND user_id=? AND date=?",
@@ -574,13 +514,10 @@ async def ask_command(message: types.Message):
         )
         return
 
-    # إرسال رسالة فورية بأن السؤال قيد المعالجة
     processing_msg = await message.reply("⏳ جاري البحث عن إجابة...")
 
-    # استدعاء DeepSeek
     answer = await ask_deepseek(question)
 
-    # تحديث عداد الاستخدام
     if row:
         cursor.execute(
             "UPDATE ask_usage SET count = count + 1 WHERE chat_id=? AND user_id=? AND date=?",
@@ -598,12 +535,59 @@ async def ask_command(message: types.Message):
     thanks = f"شكراً لك {user_name}! 🤍 تبقى لديك {remaining} أسئلة لهذا اليوم."
     final_answer = f"{thanks}\n\n{answer}"
 
-    # حذف رسالة المعالجة وإرسال الرد
     await processing_msg.delete()
     await message.reply(final_answer)
 
 # =============================
-# Callbacks لوحة التحكم (محدثة)
+# Security (الحماية التلقائية للجميع) - يجب أن يكون بعد معالجات الأوامر
+# =============================
+@dp.message(F.text)
+async def security(message: types.Message):
+    if message.text.startswith("/"):
+        return
+
+    if message.chat.type not in ["group", "supergroup"]:
+        return
+
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    if await is_admin(chat_id, user_id):
+        return
+
+    cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
+    row = cursor.fetchone()
+    if row and row[0] == 1:
+        await message.delete()
+        return
+
+    cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
+    row = cursor.fetchone()
+    links_enabled = row[0] if row else 0
+
+    violated = False
+    if not links_enabled and has_link(message.text):
+        violated = True
+    if contains_banned_content(message.text):
+        violated = True
+
+    if violated:
+        await message.delete()
+        count = add_warning(chat_id, user_id)
+        if count >= 3:
+            until = int((utc_now() + timedelta(hours=1)).timestamp())
+            await bot.restrict_chat_member(
+                chat_id,
+                user_id,
+                ChatPermissions(can_send_messages=False),
+                until_date=until
+            )
+            await message.answer("🔇 تم كتم العضو ساعة واحدة")
+        else:
+            await message.answer(f"⚠️ تحذير {count}/3")
+
+# =============================
+# Callbacks لوحة التحكم
 # =============================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
@@ -614,7 +598,6 @@ async def callbacks(call: types.CallbackQuery):
         await call.answer("❌ للأعضاء المسموح لهم فقط", show_alert=True)
         return
 
-    # الأزرار الأساسية (متاحة لجميع المجموعات)
     if call.data == "enable_links":
         cursor.execute("UPDATE settings SET links=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
@@ -633,13 +616,10 @@ async def callbacks(call: types.CallbackQuery):
     elif call.data == "open_group":
         await manual_open_group(chat_id)
         await call.answer("🔓 تم فتح المجموعة")
-
-    # الأزرار الخاصة بالمجموعة الخاصة فقط (يتم تجاهلها في المجموعات الأخرى)
     elif call.data in ["enable_ask", "disable_ask", "enable_tips", "disable_tips"]:
         if chat_id != OWNER_GROUP_ID:
             await call.answer("❌ هذه الإعدادات غير متاحة في هذه المجموعة.", show_alert=True)
             return
-
         if call.data == "enable_ask":
             await call.message.answer("✅ تم تفعيل الأمر /ask في المجموعة الخاصة.")
         elif call.data == "disable_ask":
@@ -648,7 +628,6 @@ async def callbacks(call: types.CallbackQuery):
             await call.message.answer("💡 تم تفعيل النصائح اليومية في المجموعة الخاصة.")
         elif call.data == "disable_tips":
             await call.message.answer("🔇 تم تعطيل النصائح اليومية في المجموعة الخاصة.")
-
     await call.answer()
 
 # =============================

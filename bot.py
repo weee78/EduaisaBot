@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -15,15 +15,15 @@ from aiogram.enums import ChatType
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
 # =============================
-# TIMEZONE FUNCTIONS
+# TIME FUNCTIONS (معيار UTC)
 # =============================
-def mecca_now():
-    """ترجع الوقت الحالي بتوقيت مكة المكرمة (UTC+3) للمقارنة فقط"""
-    return datetime.utcnow() + timedelta(hours=3)
-
 def utc_now():
-    """ترجع الوقت الحالي بتوقيت UTC"""
-    return datetime.utcnow()
+    """ترجع الوقت الحالي بتوقيت UTC مع الـ timezone"""
+    return datetime.now(timezone.utc)
+
+def mecca_now():
+    """ترجع الوقت الحالي بتوقيت مكة المكرمة (للمقارنة فقط)"""
+    return utc_now() + timedelta(hours=3)
 
 # =============================
 # قائمة الكلمات الممنوعة (موسعة)
@@ -88,14 +88,12 @@ BANNED_WORDS = [
     "مستشفى", "عيادة",
     "دواء", "أدوية",
     "علاج", "معالجة",
-    " زق", "روشتة","وصفة طبية", "روشتة","خرى","خرا"
+    "وصفة طبية", "روشتة",
 ]
 
-# نمط أرقام الجوال السعودي (05xxxxxxxx أو 9665xxxxxxxx)
 SAUDI_PHONE_PATTERN = re.compile(r'(05\d{8}|9665\d{8})')
 
 def contains_banned_content(text: str) -> bool:
-    """التحقق مما إذا كان النص يحتوي على كلمة ممنوعة أو رقم جوال سعودي"""
     if not text:
         return False
     lower_text = text.lower()
@@ -107,7 +105,7 @@ def contains_banned_content(text: str) -> bool:
     return False
 
 # =============================
-# Logging
+# Logging & Bot
 # =============================
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -139,7 +137,7 @@ CREATE TABLE IF NOT EXISTS settings (
 conn.commit()
 
 # =============================
-# Keyboard لوحة تحكم المشرف
+# لوحة التحكم
 # =============================
 def admin_keyboard():
     return InlineKeyboardMarkup(
@@ -176,7 +174,7 @@ def is_closed_time():
     return now.hour >= 23 or now.hour < 7
 
 # =============================
-# الإغلاق والفتح التلقائي
+# إجراءات القفل/الفتح التلقائي واليدوي
 # =============================
 async def auto_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
@@ -184,10 +182,7 @@ async def auto_close_group(chat_id):
         chat_id,
         "🔴 القروب مغلق الآن\n⏰ من الساعة 11 مساءً إلى 7 صباحاً\nبتوقيت مكة المكرمة"
     )
-    cursor.execute(
-        "UPDATE settings SET closed=1, manually_closed=0, manually_opened=0 WHERE chat_id=?",
-        (chat_id,)
-    )
+    cursor.execute("UPDATE settings SET closed=1, manually_closed=0, manually_opened=0 WHERE chat_id=?", (chat_id,))
     conn.commit()
 
 async def auto_open_group(chat_id):
@@ -200,22 +195,13 @@ async def auto_open_group(chat_id):
         )
     )
     await bot.send_message(chat_id, "🟢 تم فتح القروب\nمرحباً بكم 🌿")
-    cursor.execute(
-        "UPDATE settings SET closed=0, manually_closed=0, manually_opened=0 WHERE chat_id=?",
-        (chat_id,)
-    )
+    cursor.execute("UPDATE settings SET closed=0, manually_closed=0, manually_opened=0 WHERE chat_id=?", (chat_id,))
     conn.commit()
 
-# =============================
-# الإغلاق والفتح اليدوي
-# =============================
 async def manual_close_group(chat_id):
     await bot.set_chat_permissions(chat_id, ChatPermissions(can_send_messages=False))
     await bot.send_message(chat_id, "✅ تم قفل المجموعة بنجاح")
-    cursor.execute(
-        "UPDATE settings SET closed=1, manually_closed=1, manually_opened=0 WHERE chat_id=?",
-        (chat_id,)
-    )
+    cursor.execute("UPDATE settings SET closed=1, manually_closed=1, manually_opened=0 WHERE chat_id=?", (chat_id,))
     conn.commit()
 
 async def manual_open_group(chat_id):
@@ -228,10 +214,7 @@ async def manual_open_group(chat_id):
         )
     )
     await bot.send_message(chat_id, "✅ تم فتح المجموعة بنجاح")
-    cursor.execute(
-        "UPDATE settings SET closed=0, manually_closed=0, manually_opened=1 WHERE chat_id=?",
-        (chat_id,)
-    )
+    cursor.execute("UPDATE settings SET closed=0, manually_closed=0, manually_opened=1 WHERE chat_id=?", (chat_id,))
     conn.commit()
 
 # =============================
@@ -245,16 +228,13 @@ async def scheduler():
 
         cursor.execute("SELECT chat_id, closed, manually_closed, manually_opened FROM settings")
         rows = cursor.fetchall()
-        print(f"📊 عدد المجموعات المسجلة: {len(rows)}")
 
         for chat_id, closed, manually_closed, manually_opened in rows:
             if is_closed_time():
                 if closed == 0 and manually_opened == 0:
-                    print(f"🔴 جاري إغلاق المجموعة {chat_id} تلقائياً")
                     await auto_close_group(chat_id)
             else:
                 if closed == 1 and manually_closed == 0:
-                    print(f"🟢 جاري فتح المجموعة {chat_id} تلقائياً")
                     await auto_open_group(chat_id)
 
         await asyncio.sleep(60)
@@ -298,10 +278,7 @@ async def tabuk(message: types.Message):
     if message.chat.type == ChatType.PRIVATE:
         await message.answer(text)
     else:
-        await message.reply(
-            "✅ تم تفعيل الحماية",
-            reply_markup=admin_keyboard()
-        )
+        await message.reply("✅ تم تفعيل الحماية", reply_markup=admin_keyboard())
         cursor.execute(
             "INSERT OR IGNORE INTO settings(chat_id, links, closed, manually_closed, manually_opened) VALUES (?,0,0,0,0)",
             (message.chat.id,)
@@ -319,7 +296,7 @@ async def welcome(message: types.Message):
         await message.reply(f"👋 مرحباً {user.first_name}")
 
 # =============================
-# Security
+# Security (الحماية التلقائية)
 # =============================
 @dp.message(F.text)
 async def security(message: types.Message):
@@ -352,18 +329,19 @@ async def security(message: types.Message):
         await message.delete()
         count = add_warning(chat_id, user_id)
         if count >= 3:
+            until = int((utc_now() + timedelta(hours=1)).timestamp())
             await bot.restrict_chat_member(
                 chat_id,
                 user_id,
                 ChatPermissions(can_send_messages=False),
-                until_date=int((utc_now() + timedelta(hours=1)).timestamp())
+                until_date=until
             )
             await message.answer("🔇 تم كتم العضو ساعة واحدة")
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 
 # =============================
-# الأمر /mute (يعمل بالرد فقط)
+# الأمر /mute (يعمل بالرد فقط) - النسخة النهائية
 # =============================
 @dp.message(Command("mute"))
 async def mute_command(message: types.Message):
@@ -375,7 +353,7 @@ async def mute_command(message: types.Message):
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
-    # تحقق من وجود رد على رسالة
+    # تحقق من وجود رد
     if not message.reply_to_message:
         await message.reply("⚠️ يجب الرد على رسالة العضو الذي تريد كتمه.")
         return
@@ -411,7 +389,7 @@ async def mute_command(message: types.Message):
         await message.reply("❌ لا يمكن كتم مشرف.")
         return
 
-    # تحقق من أن البوت لديه صلاحية كتم الأعضاء
+    # تحقق من صلاحية البوت
     try:
         bot_member = await bot.get_chat_member(chat_id, bot.id)
         if bot_member.status != "administrator" or not bot_member.can_restrict_members:
@@ -421,21 +399,22 @@ async def mute_command(message: types.Message):
         await message.reply(f"❌ خطأ في التحقق من صلاحيات البوت: {e}")
         return
 
-    # تنفيذ الكتم
+    # حساب وقت انتهاء الكتم بصيغة timestamp صحيحة
+    until = int((utc_now() + delta).timestamp())
+
     try:
-        until_timestamp = int((utc_now() + delta).timestamp())
         await bot.restrict_chat_member(
             chat_id,
             target_user.id,
             permissions=ChatPermissions(can_send_messages=False),
-            until_date=until_timestamp
+            until_date=until
         )
         await message.reply(f"🔇 تم كتم {target_user.first_name} لمدة {duration_str}.")
     except Exception as e:
         await message.reply(f"❌ فشل الكتم: {e}")
 
 # =============================
-# Callbacks لوحة التحكم
+# Callbacks
 # =============================
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
@@ -469,7 +448,7 @@ async def callbacks(call: types.CallbackQuery):
 # Main
 # =============================
 async def main():
-    print("🔥 بوت الحماية شغال - توقيت مكة المكرمة (UTC+3)")
+    print("🔥 بوت الحماية شغال - توقيت UTC معتمد")
     asyncio.create_task(scheduler())
     await dp.start_polling(bot)
 

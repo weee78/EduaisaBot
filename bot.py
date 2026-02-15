@@ -18,9 +18,9 @@ from aiogram.enums import ChatType
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
 # =============================
-# معرف المجموعة الخاصة - قم بتغييره بعد قراءة الرقم الصحيح من الطرفية
+# معرف المجموعة الخاصة
 # =============================
-OWNER_GROUP_ID = -1003871599530  # ⚠️ غيّر هذا الرقم بعد أن ترى الرقم الصحيح في الطرفية
+OWNER_GROUP_ID = -1003871599530  # ⚠️ غيّره للرقم الصحيح من الطرفية
 
 # =============================
 # إعدادات DeepSeek API
@@ -57,7 +57,7 @@ def today_str():
     return date.today().isoformat()
 
 # =============================
-# قائمة الكلمات الممنوعة (كما هي)
+# قائمة الكلمات الممنوعة
 # =============================
 BANNED_WORDS = [
     "كس", "زب", "طيز", "شرج", "بظر", "فرج",
@@ -226,7 +226,7 @@ AFTERNOON_TIPS = [
 ]
 
 # =============================
-# لوحة المفاتيح - تظهر الأزرار الإضافية فقط للمجموعة الخاصة
+# لوحة المفاتيح
 # =============================
 def admin_keyboard(chat_id: int):
     basic_buttons = [
@@ -242,7 +242,6 @@ def admin_keyboard(chat_id: int):
             InlineKeyboardButton(text="🔓 تشغيل المجموعة", callback_data="open_group")
         ]
     ]
-    # إذا كانت هذه هي المجموعة الخاصة، نضيف الأزرار الإضافية
     if chat_id == OWNER_GROUP_ID:
         extra_buttons = [
             [
@@ -259,13 +258,16 @@ def admin_keyboard(chat_id: int):
         return InlineKeyboardMarkup(inline_keyboard=basic_buttons)
 
 # =============================
-# Admin check
+# Admin check (مع طباعة للأخطاء)
 # =============================
 async def is_admin(chat_id, user_id):
     try:
         member = await bot.get_chat_member(chat_id, user_id)
-        return member.status in ["administrator", "creator"]
-    except:
+        result = member.status in ["administrator", "creator"]
+        print(f"🔍 is_admin({chat_id}, {user_id}) = {result} (status: {member.status})")
+        return result
+    except Exception as e:
+        print(f"⚠️ خطأ في is_admin: {e}")
         return False
 
 # =============================
@@ -342,7 +344,7 @@ async def scheduler():
         await asyncio.sleep(60)
 
 # =============================
-# المهام اليومية (ترسل فقط للمجموعة الخاصة)
+# المهام اليومية
 # =============================
 async def daily_promo():
     while True:
@@ -437,7 +439,7 @@ async def search_templates_via_api(query: str):
         return None
 
 # =============================
-# الأمر /start (مع طباعة معرف المجموعة لمساعدتك)
+# الأمر /start
 # =============================
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -520,7 +522,7 @@ async def cmd_search(message: types.Message):
     await status_msg.edit_text(reply, disable_web_page_preview=True)
 
 # =============================
-# الأمر /mute
+# الأمر /mute (معدل مع تشخيص)
 # =============================
 @dp.message(F.text.startswith("/mute"))
 async def cmd_mute(message: types.Message):
@@ -528,7 +530,10 @@ async def cmd_mute(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    if not await is_admin(chat_id, user_id):
+    is_admin_result = await is_admin(chat_id, user_id)
+    print(f"👤 المستخدم {user_id} مشرف؟ {is_admin_result}")
+
+    if not is_admin_result:
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
@@ -586,7 +591,7 @@ async def cmd_mute(message: types.Message):
         await message.reply(f"❌ فشل الكتم: {e}")
 
 # =============================
-# الأمر /ask (يعمل فقط في المجموعة الخاصة)
+# الأمر /ask
 # =============================
 @dp.message(F.text.startswith("/ask"))
 async def cmd_ask(message: types.Message):
@@ -660,7 +665,7 @@ async def on_user_join(message: types.Message):
         await message.reply(f"👋 مرحباً {user.first_name}")
 
 # =============================
-# معالج الأمان (للبريد العشوائي) - يجب أن يكون في النهاية
+# معالج الأمان (تم إعادة الترتيب: المشرف أولاً)
 # =============================
 @dp.message(F.text)
 async def security(message: types.Message):
@@ -674,15 +679,19 @@ async def security(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
+    # ✅ أولاً: التحقق من كونه مشرف (المشرفون مستثنون تماماً)
     if await is_admin(chat_id, user_id):
+        print(f"🛡️ رسالة من مشرف (ID: {user_id}) - لن تخضع للحماية.")
         return
 
+    # ✅ ثانياً: التحقق من قفل المجموعة
     cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     if row and row[0] == 1:
         await message.delete()
         return
 
+    # ✅ ثالثاً: التحقق من الروابط والكلمات الممنوعة
     cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     links_enabled = row[0] if row else 0
@@ -771,7 +780,6 @@ async def callbacks(call: types.CallbackQuery):
             conn.commit()
             await call.message.answer("🔒 تم تعطيل الأمر /ask في المجموعة الخاصة (لجميع الأعضاء).")
         elif call.data == "enable_tips":
-            # هنا يمكن إضافة تخزين حالة النصائح إذا أردت التحكم الدقيق
             await call.message.answer("💡 النصائح اليومية مفعلة (ترسل تلقائياً).")
         elif call.data == "disable_tips":
             await call.message.answer("🔇 تم تعطيل النصائح اليومية (لن ترسل بعد الآن).")

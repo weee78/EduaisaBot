@@ -20,7 +20,7 @@ TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 # =============================
 # معرف المجموعة الخاصة
 # =============================
-OWNER_GROUP_ID = -1003871599530  # ⚠️ غيّره للرقم الصحيح من الطرفية
+OWNER_GROUP_ID = -1003872430815  # ⚠️ غيّره للرقم الصحيح من الطرفية
 
 # =============================
 # إعدادات DeepSeek API
@@ -258,13 +258,13 @@ def admin_keyboard(chat_id: int):
         return InlineKeyboardMarkup(inline_keyboard=basic_buttons)
 
 # =============================
-# Admin check (مع طباعة للأخطاء)
+# Admin check مع طباعة تفصيلية
 # =============================
 async def is_admin(chat_id, user_id):
     try:
         member = await bot.get_chat_member(chat_id, user_id)
         result = member.status in ["administrator", "creator"]
-        print(f"🔍 is_admin({chat_id}, {user_id}) = {result} (status: {member.status})")
+        print(f"🔍 is_admin({chat_id}, {user_id}) => {result} (status: {member.status})")
         return result
     except Exception as e:
         print(f"⚠️ خطأ في is_admin: {e}")
@@ -522,7 +522,7 @@ async def cmd_search(message: types.Message):
     await status_msg.edit_text(reply, disable_web_page_preview=True)
 
 # =============================
-# الأمر /mute (معدل مع تشخيص)
+# الأمر /mute - معدل بالكامل
 # =============================
 @dp.message(F.text.startswith("/mute"))
 async def cmd_mute(message: types.Message):
@@ -530,17 +530,20 @@ async def cmd_mute(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    is_admin_result = await is_admin(chat_id, user_id)
-    print(f"👤 المستخدم {user_id} مشرف؟ {is_admin_result}")
+    # تحقق من أن المستخدم مشرف
+    is_admin_user = await is_admin(chat_id, user_id)
+    print(f"👤 المستخدم {user_id} مشرف؟ {is_admin_user}")
 
-    if not is_admin_result:
+    if not is_admin_user:
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
+    # تحقق من الرد على رسالة
     if not message.reply_to_message:
         await message.reply("⚠️ يجب الرد على رسالة العضو الذي تريد كتمه.")
         return
 
+    # استخراج المدة
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("⚠️ يرجى تحديد المدة، مثال: `/mute 1h`")
@@ -566,18 +569,23 @@ async def cmd_mute(message: types.Message):
 
     target_user = message.reply_to_message.from_user
 
+    # لا يمكن كتم مشرف
     if await is_admin(chat_id, target_user.id):
         await message.reply("❌ لا يمكن كتم مشرف.")
         return
 
+    # تحقق من صلاحية البوت
     try:
         bot_member = await bot.get_chat_member(chat_id, bot.id)
         if bot_member.status != "administrator" or not bot_member.can_restrict_members:
             await message.reply("❌ البوت ليس لديه صلاحية كتم الأعضاء. قم برفعه مشرف مع صلاحية 'تقييد الأعضاء'.")
             return
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ خطأ في التحقق من صلاحية البوت: {e}")
+        await message.reply("❌ لا يمكن التحقق من صلاحيات البوت.")
+        return
 
+    # تنفيذ الكتم
     until = int((utc_now() + delta).timestamp())
     try:
         await bot.restrict_chat_member(
@@ -589,6 +597,7 @@ async def cmd_mute(message: types.Message):
         await message.reply(f"🔇 تم كتم {target_user.first_name} لمدة {duration_str}.")
     except Exception as e:
         await message.reply(f"❌ فشل الكتم: {e}")
+        print(f"❌ خطأ في restrict: {e}")
 
 # =============================
 # الأمر /ask
@@ -665,41 +674,48 @@ async def on_user_join(message: types.Message):
         await message.reply(f"👋 مرحباً {user.first_name}")
 
 # =============================
-# معالج الأمان (تم إعادة الترتيب: المشرف أولاً)
+# معالج الأمان (الحماية) - معدل بالكامل
 # =============================
 @dp.message(F.text)
 async def security(message: types.Message):
-    # تجاهل الأوامر
+    # 1. تجاهل الأوامر
     if message.text.startswith("/"):
         return
 
+    # 2. التأكد من أن المحادثة مجموعة
     if message.chat.type not in ["group", "supergroup"]:
         return
 
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    # ✅ أولاً: التحقق من كونه مشرف (المشرفون مستثنون تماماً)
+    print(f"🛡️ فحص رسالة من {user_id} في {chat_id}: {message.text[:50]}...")
+
+    # 3. التحقق من المشرفية (المشرفون مستثنون تماماً)
     if await is_admin(chat_id, user_id):
-        print(f"🛡️ رسالة من مشرف (ID: {user_id}) - لن تخضع للحماية.")
+        print(f"✅ المشرف {user_id} مسموح له بكل شيء.")
         return
 
-    # ✅ ثانياً: التحقق من قفل المجموعة
+    # 4. التحقق من قفل المجموعة
     cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     if row and row[0] == 1:
+        print(f"🔒 المجموعة مقفولة، حذف رسالة العضو {user_id}")
         await message.delete()
         return
 
-    # ✅ ثالثاً: التحقق من الروابط والكلمات الممنوعة
+    # 5. التحقق من إعدادات الروابط
     cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     links_enabled = row[0] if row else 0
 
+    # 6. فحص المخالفات
     violated = False
     if not links_enabled and has_link(message.text):
+        print(f"🔗 رابط ممنوع من {user_id}")
         violated = True
     if contains_banned_content(message.text):
+        print(f"🚫 كلمة ممنوعة من {user_id}")
         violated = True
 
     if violated:
@@ -713,7 +729,7 @@ async def security(message: types.Message):
                 ChatPermissions(can_send_messages=False),
                 until_date=until
             )
-            await message.answer("🔇 تم كتم العضو ساعة واحدة")
+            await message.answer(f"🔇 تم كتم العضو (وصل إلى 3 تحذيرات)")
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
 

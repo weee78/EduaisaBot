@@ -20,7 +20,7 @@ TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 # =============================
 # معرف المجموعة الخاصة
 # =============================
-OWNER_GROUP_ID = -1003871599530  # ⚠️ غيّره للرقم الصحيح من الطرفية
+OWNER_GROUP_ID = -1003871599530  # تم التحديث إلى الرقم الجديد
 
 # =============================
 # إعدادات DeepSeek API
@@ -114,7 +114,7 @@ BANNED_WORDS = [
     "مستشفى", "عيادة",
     "دواء", "أدوية",
     "علاج", "معالجة",
-    "وصفة طبية", "روشتة","زق","خرى","وصخ","خرا",
+    "وصفة طبية", "روشتة",
 ]
 
 SAUDI_PHONE_PATTERN = re.compile(r'(05\d{8}|9665\d{8})')
@@ -361,7 +361,7 @@ async def daily_promo():
 
         try:
             promo_text = (
-                "🌞 صباح الخير! أنا بوت \n\n"
+                "🌞 صباح الخير! أنا بوت **نماذج Ai التعليمية**.\n\n"
                 "هل لديك سؤال عن الذكاء الاصطناعي، التعليم، أو أي موضوع آخر؟\n"
                 "اكتب الأمر `/ask` ثم سؤالك، وسأجيبك فوراً! (لديك 5 أسئلة يومياً)\n\n"
                 "جرب الآن، وأخبرني ماذا تريد أن تتعلم اليوم؟ 🚀"
@@ -415,27 +415,56 @@ async def daily_afternoon_tips():
         await asyncio.sleep(24 * 3600)
 
 # =============================
-# البحث في الموقع عبر API
+# البحث في الموقع عبر API (محدث مع تشخيص)
 # =============================
 async def search_templates_via_api(query: str):
+    """يبحث في API النماذج ويعيد قائمة بالنتائج"""
     try:
-        encoded_query = quote(query)
-        url = f"https://eduai-sa.com/api/templates?search={encoded_query}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
+        base_url = "https://eduai-sa.com/api/templates"
+        if query:
+            encoded_query = quote(query)
+            url = f"{base_url}?search={encoded_query}"
+        else:
+            url = base_url
+
+        print(f"🔍 طلب البحث إلى: {url}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "application/json"
+        }
+        response = requests.get(url, headers=headers, timeout=15)
+        print(f"📡 حالة الاستجابة: {response.status_code}")
+
+        if response.status_code != 200:
+            print(f"❌ خطأ في الاستجابة: {response.text[:200]}")
+            return None
+
         data = response.json()
+        print(f"✅ تم استلام {len(data)} نتيجة من API")
+
         results = []
         for item in data:
-            category = item.get('category', 'غير محدد').replace(' > ', ' → ')
+            category = item.get('category', 'غير محدد')
+            if ' > ' in category:
+                category = category.replace(' > ', ' → ')
             results.append({
                 'title': item.get('title', 'بدون عنوان'),
                 'category': category,
                 'link': item.get('download', item.get('link', '#'))
             })
         return results
-    except Exception as e:
-        print(f"❌ خطأ في البحث: {e}")
+
+    except requests.exceptions.Timeout:
+        print("❌ خطأ: انتهت مهلة الطلب")
+        return None
+    except requests.exceptions.ConnectionError:
+        print("❌ خطأ: فشل الاتصال بالخادم")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"❌ خطأ في الطلب: {e}")
+        return None
+    except ValueError as e:
+        print(f"❌ خطأ في تحليل JSON: {e}")
         return None
 
 # =============================
@@ -487,7 +516,7 @@ async def cmd_search(message: types.Message):
     results = await search_templates_via_api(query)
 
     if results is None:
-        await status_msg.edit_text("❌ حدث خطأ في الاتصال بالموقع، حاول لاحقاً.")
+        await status_msg.edit_text("❌ حدث خطأ في الاتصال بالموقع، حاول لاحقاً.\n(راجع الطرفية للتفاصيل)")
         return
 
     if not results:
@@ -522,7 +551,7 @@ async def cmd_search(message: types.Message):
     await status_msg.edit_text(reply, disable_web_page_preview=True)
 
 # =============================
-# الأمر /mute - معدل بالكامل
+# الأمر /mute
 # =============================
 @dp.message(F.text.startswith("/mute"))
 async def cmd_mute(message: types.Message):
@@ -530,7 +559,6 @@ async def cmd_mute(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    # تحقق من أن المستخدم مشرف
     is_admin_user = await is_admin(chat_id, user_id)
     print(f"👤 المستخدم {user_id} مشرف؟ {is_admin_user}")
 
@@ -538,12 +566,10 @@ async def cmd_mute(message: types.Message):
         await message.reply("❌ هذا الأمر للمشرفين فقط.")
         return
 
-    # تحقق من الرد على رسالة
     if not message.reply_to_message:
         await message.reply("⚠️ يجب الرد على رسالة العضو الذي تريد كتمه.")
         return
 
-    # استخراج المدة
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("⚠️ يرجى تحديد المدة، مثال: `/mute 1h`")
@@ -569,12 +595,10 @@ async def cmd_mute(message: types.Message):
 
     target_user = message.reply_to_message.from_user
 
-    # لا يمكن كتم مشرف
     if await is_admin(chat_id, target_user.id):
         await message.reply("❌ لا يمكن كتم مشرف.")
         return
 
-    # تحقق من صلاحية البوت
     try:
         bot_member = await bot.get_chat_member(chat_id, bot.id)
         if bot_member.status != "administrator" or not bot_member.can_restrict_members:
@@ -585,7 +609,6 @@ async def cmd_mute(message: types.Message):
         await message.reply("❌ لا يمكن التحقق من صلاحيات البوت.")
         return
 
-    # تنفيذ الكتم
     until = int((utc_now() + delta).timestamp())
     try:
         await bot.restrict_chat_member(
@@ -674,15 +697,14 @@ async def on_user_join(message: types.Message):
         await message.reply(f"👋 مرحباً {user.first_name}")
 
 # =============================
-# معالج الأمان (الحماية) - معدل بالكامل
+# معالج الأمان (الحماية) - معدل
 # =============================
 @dp.message(F.text)
 async def security(message: types.Message):
-    # 1. تجاهل الأوامر
+    # تجاهل الأوامر
     if message.text.startswith("/"):
         return
 
-    # 2. التأكد من أن المحادثة مجموعة
     if message.chat.type not in ["group", "supergroup"]:
         return
 
@@ -691,12 +713,12 @@ async def security(message: types.Message):
 
     print(f"🛡️ فحص رسالة من {user_id} في {chat_id}: {message.text[:50]}...")
 
-    # 3. التحقق من المشرفية (المشرفون مستثنون تماماً)
+    # المشرفون مستثنون تماماً
     if await is_admin(chat_id, user_id):
         print(f"✅ المشرف {user_id} مسموح له بكل شيء.")
         return
 
-    # 4. التحقق من قفل المجموعة
+    # قفل المجموعة
     cursor.execute("SELECT closed FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     if row and row[0] == 1:
@@ -704,12 +726,11 @@ async def security(message: types.Message):
         await message.delete()
         return
 
-    # 5. التحقق من إعدادات الروابط
+    # إعدادات الروابط
     cursor.execute("SELECT links FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     links_enabled = row[0] if row else 0
 
-    # 6. فحص المخالفات
     violated = False
     if not links_enabled and has_link(message.text):
         print(f"🔗 رابط ممنوع من {user_id}")
@@ -806,6 +827,7 @@ async def callbacks(call: types.CallbackQuery):
 # =============================
 async def main():
     print("🔥 بوت الحماية شغال - توقيت UTC معتمد")
+    print(f"👑 المجموعة الخاصة ID: {OWNER_GROUP_ID}")
     asyncio.create_task(scheduler())
     asyncio.create_task(daily_promo())
     asyncio.create_task(daily_morning_tips())

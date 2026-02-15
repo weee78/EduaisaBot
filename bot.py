@@ -60,6 +60,7 @@ def today_str():
 # قائمة الكلمات الممنوعة
 # =============================
 BANNED_WORDS = [
+    # كلمات خارجة / نابية
     "كس", "زب", "طيز", "شرج", "بظر", "فرج",
     "نيك", "ينيك", "انيك", "نيكني", "ينيكك",
     "متناك", "منيوك", "منيوكة", "منيوكين",
@@ -73,6 +74,7 @@ BANNED_WORDS = [
     "سالب", "موجب", "مبادل",
     "محارم", "سفاح", "سفاحين",
     "اغتصاب", "مغتصب", "مغتصبة",
+    # سب وقذف
     "لعن", "اللعنة", "ملعون",
     "كلب", "كلبة", "كلاب",
     "خنزير", "خنزيرة",
@@ -91,6 +93,7 @@ BANNED_WORDS = [
     "خبيث", "خبيثة",
     "نذل", "نذلة",
     "وغد", "وغدة",
+    # عيب وشتم
     "عيب", "حرام",
     "فاسق", "فاسقة",
     "فاجر", "فاجرة",
@@ -100,6 +103,7 @@ BANNED_WORDS = [
     "منافق", "منافقة",
     "مرتزق", "مرتزقة",
     "عميل", "عملاء",
+    # ألفاظ جنسية صريحة
     "سكس", "سكسي", "بورن", "إباحي", "إباحية",
     "سكربت", "سكربتات",
     "عري", "عرايا",
@@ -108,6 +112,7 @@ BANNED_WORDS = [
     "مقبلات", "مداعبات",
     "رومانسية", "رومانسي",
     "ليالي حب", "ليالي الدخلة",
+    # كلمات طبية غير مرغوب فيها
     "اجازة مرضية", "سكليف", "تقرير طبي",
     "شهادة مرضية", "عذر طبي",
     "مرض", "مرضى", "مريض",
@@ -174,7 +179,7 @@ CREATE TABLE IF NOT EXISTS ask_usage (
 conn.commit()
 
 # =============================
-# قائمة النصائح
+# قائمة النصائح التقنية
 # =============================
 MORNING_TIPS = [
     "💡 **نصيحة تقنية**: الذكاء الاصطناعي ليس مجرد روبوتات! تعلم أساسيات تعلم الآلة يمكن أن يغير مسار حياتك المهنية.",
@@ -392,95 +397,33 @@ async def daily_afternoon_tips():
 # البحث في الموقع عبر API
 # =============================
 async def search_templates_via_api(query: str):
-    """يبحث في موقع النماذج باستخدام API ويعيد قائمة بالنتائج"""
     try:
-        # ترميز الاستعلام للـ URL
         encoded_query = quote(query)
         url = f"https://eduai-sa.com/api/templates?search={encoded_query}"
-        
-        # إرسال الطلب مع User-Agent
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        
-        # تحليل JSON
         data = response.json()
-        
-        # تحويل البيانات إلى الشكل المطلوب
         results = []
         for item in data:
-            # تنظيف القسم (إزالة علامات > الزائدة)
             category = item.get('category', 'غير محدد').replace(' > ', ' → ')
             results.append({
                 'title': item.get('title', 'بدون عنوان'),
                 'category': category,
                 'link': item.get('download', item.get('link', '#'))
             })
-        
         return results
-    except requests.exceptions.RequestException as e:
-        print(f"❌ خطأ في الاتصال بالـ API: {e}")
-        return None
-    except ValueError as e:
-        print(f"❌ خطأ في تحليل JSON: {e}")
+    except Exception as e:
+        print(f"❌ خطأ في البحث: {e}")
         return None
 
 # =============================
-# الأمر /search (محدث)
-# =============================
-@dp.message(F.text.startswith("/search"))
-async def search_command(message: types.Message):
-    query = message.text.replace("/search", "", 1).strip()
-    if not query:
-        await message.reply("❌ يرجى كتابة كلمة البحث بعد الأمر.\nمثال: `/search خطة تحسين`")
-        return
-
-    status_msg = await message.reply("🔍 جاري البحث في موقع النماذج...")
-    results = await search_templates_via_api(query)
-
-    if results is None:
-        await status_msg.edit_text("❌ حدث خطأ في الاتصال بالموقع، حاول لاحقاً.")
-        return
-
-    if not results:
-        await status_msg.edit_text(
-            f"🔍 لا توجد نتائج لـ \"{query}\".\n"
-            "جرب كلمات أخرى مثل:\n"
-            "- خطة تحسين\n"
-            "- شهادة شكر\n"
-            "- تقرير برنامج"
-        )
-        return
-
-    # بناء الرد
-    if len(results) == 1:
-        r = results[0]
-        reply = (
-            f"✅ **تم العثور على ملف واحد**\n\n"
-            f"📄 **العنوان:** {r['title']}\n"
-            f"📂 **القسم:** {r['category']}\n"
-        )
-        if r['link'] != '#':
-            reply += f"🔗 [تحميل الملف]({r['link']})"
-    else:
-        reply = f"✅ **تم العثور على {len(results)} ملفات**\n\n"
-        for i, r in enumerate(results[:5], 1):  # نعرض أول 5 فقط
-            reply += f"{i}. **{r['title']}**\n   📂 {r['category']}\n"
-            if r['link'] != '#':
-                reply += f"   🔗 [تحميل]({r['link']})\n"
-            reply += "\n"
-        if len(results) > 5:
-            reply += f"...و {len(results)-5} نتائج أخرى. يرجى تحسين البحث."
-
-    await status_msg.edit_text(reply, disable_web_page_preview=True)
-
-# =============================
-# الأمر /start
+# الأمر /start (الأولوية القصوى)
 # =============================
 @dp.message(Command("start"))
-async def tabuk(message: types.Message):
+async def cmd_start(message: types.Message):
+    print("✅ تم استدعاء /start")
+    print(f"📌 المجموعة: {message.chat.id}, المستخدم: {message.from_user.id}")
     text = (
         "🤖 بوت Eduai-sa نماذج Ai التعليمية\n\n"
         "الموقع الالكتروني\nhttps://eduai-sa.com\n\n"
@@ -503,20 +446,60 @@ async def tabuk(message: types.Message):
         conn.commit()
 
 # =============================
-# Welcome
+# الأمر /search
 # =============================
-@dp.message(F.new_chat_members)
-async def welcome(message: types.Message):
-    for user in message.new_chat_members:
-        if user.id == bot.id:
-            continue
-        await message.reply(f"👋 مرحباً {user.first_name}")
+@dp.message(F.text.startswith("/search"))
+async def cmd_search(message: types.Message):
+    print("✅ تم استدعاء /search")
+    query = message.text.replace("/search", "", 1).strip()
+    if not query:
+        await message.reply("❌ يرجى كتابة كلمة البحث بعد الأمر.\nمثال: `/search خطة تحسين`")
+        return
+
+    status_msg = await message.reply("🔍 جاري البحث في موقع النماذج...")
+    results = await search_templates_via_api(query)
+
+    if results is None:
+        await status_msg.edit_text("❌ حدث خطأ في الاتصال بالموقع، حاول لاحقاً.")
+        return
+
+    if not results:
+        await status_msg.edit_text(
+            f"🔍 لا توجد نتائج لـ \"{query}\".\n"
+            "جرب كلمات أخرى مثل:\n"
+            "- خطة تحسين\n"
+            "- شهادة شكر\n"
+            "- تقرير برنامج"
+        )
+        return
+
+    if len(results) == 1:
+        r = results[0]
+        reply = (
+            f"✅ **تم العثور على ملف واحد**\n\n"
+            f"📄 **العنوان:** {r['title']}\n"
+            f"📂 **القسم:** {r['category']}\n"
+        )
+        if r['link'] != '#':
+            reply += f"🔗 [تحميل الملف]({r['link']})"
+    else:
+        reply = f"✅ **تم العثور على {len(results)} ملفات**\n\n"
+        for i, r in enumerate(results[:5], 1):
+            reply += f"{i}. **{r['title']}**\n   📂 {r['category']}\n"
+            if r['link'] != '#':
+                reply += f"   🔗 [تحميل]({r['link']})\n"
+            reply += "\n"
+        if len(results) > 5:
+            reply += f"...و {len(results)-5} نتائج أخرى. يرجى تحسين البحث."
+
+    await status_msg.edit_text(reply, disable_web_page_preview=True)
 
 # =============================
 # الأمر /mute
 # =============================
 @dp.message(F.text.startswith("/mute"))
-async def mute_command(message: types.Message):
+async def cmd_mute(message: types.Message):
+    print("✅ تم استدعاء /mute")
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -581,12 +564,8 @@ async def mute_command(message: types.Message):
 # الأمر /ask
 # =============================
 @dp.message(F.text.startswith("/ask"))
-async def ask_command(message: types.Message):
-    print("🔥 دالة ask_command استدعيت!")
-    print(f"📌 النص: {message.text}")
-    print(f"👤 المستخدم: {message.from_user.id}")
-    print(f"💬 المجموعة: {message.chat.id}")
-
+async def cmd_ask(message: types.Message):
+    print("✅ تم استدعاء /ask")
     chat_id = message.chat.id
     if chat_id != OWNER_GROUP_ID:
         await message.reply("❌ هذه الميزة متاحة فقط في المجموعة الرسمية.")
@@ -643,10 +622,21 @@ async def ask_command(message: types.Message):
     await message.reply(final_answer)
 
 # =============================
-# Security
+# الترحيب بالأعضاء الجدد
+# =============================
+@dp.message(F.new_chat_members)
+async def on_user_join(message: types.Message):
+    for user in message.new_chat_members:
+        if user.id == bot.id:
+            continue
+        await message.reply(f"👋 مرحباً {user.first_name}")
+
+# =============================
+# معالج الأمان (للبريد العشوائي) - يجب أن يكون في النهاية
 # =============================
 @dp.message(F.text)
 async def security(message: types.Message):
+    # تجاهل الأوامر
     if message.text.startswith("/"):
         return
 
@@ -689,6 +679,26 @@ async def security(message: types.Message):
             await message.answer("🔇 تم كتم العضو ساعة واحدة")
         else:
             await message.answer(f"⚠️ تحذير {count}/3")
+
+# =============================
+# دوال مساعدة
+# =============================
+def has_link(text):
+    if not text:
+        return False
+    return bool(re.search(r"(https?://|www\.|t\.me)", text.lower()))
+
+def get_warnings(chat_id, user_id):
+    cursor.execute("SELECT count FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+    r = cursor.fetchone()
+    return r[0] if r else 0
+
+def add_warning(chat_id, user_id):
+    count = get_warnings(chat_id, user_id) + 1
+    cursor.execute("DELETE FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+    cursor.execute("INSERT INTO warnings VALUES (?, ?, ?)", (chat_id, user_id, count))
+    conn.commit()
+    return count
 
 # =============================
 # Callbacks
@@ -737,26 +747,6 @@ async def callbacks(call: types.CallbackQuery):
         elif call.data == "disable_tips":
             await call.message.answer("🔇 تم تعطيل النصائح اليومية (لن ترسل بعد الآن).")
     await call.answer()
-
-# =============================
-# Link detect, Warnings
-# =============================
-def has_link(text):
-    if not text:
-        return False
-    return bool(re.search(r"(https?://|www\.|t\.me)", text.lower()))
-
-def get_warnings(chat_id, user_id):
-    cursor.execute("SELECT count FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
-    r = cursor.fetchone()
-    return r[0] if r else 0
-
-def add_warning(chat_id, user_id):
-    count = get_warnings(chat_id, user_id) + 1
-    cursor.execute("DELETE FROM warnings WHERE chat_id=? AND user_id=?", (chat_id, user_id))
-    cursor.execute("INSERT INTO warnings VALUES (?, ?, ?)", (chat_id, user_id, count))
-    conn.commit()
-    return count
 
 # =============================
 # Main

@@ -3,6 +3,7 @@ import logging
 import re
 import sqlite3
 import random
+import aiohttp
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, types, F
@@ -16,12 +17,12 @@ from aiogram.enums import ChatType
 TOKEN = "8235364340:AAGQG0mwJqaaI5sAUoRpfnP_JLZ1zLBSdZI"
 
 # =============================
-# معرف المجموعة الخاصة (التي يسمح فيها بالأمر /ask والنصائح)
+# معرف المجموعات الخاصة (التي يسمح فيها بالأوامر /ask و /search والنصائح)
 # =============================
-OWNER_GROUP_ID = -1003871599530
-OWNER_GROUP_ID = -1003872430815
+OWNER_GROUPS = [-1003871599530, -1003872430815]
+
 # =============================
-# إعدادات DeepSeek API (للإصدار الجديد)
+# إعدادات DeepSeek API
 # =============================
 from openai import AsyncOpenAI
 
@@ -43,24 +44,19 @@ async def ask_deepseek(question: str) -> str:
         return f"❌ خطأ في الاتصال بـ DeepSeek: {str(e)}"
 
 # =============================
-# دوال الوقت المحسنة (تعتمد على UTC)
+# دوال الوقت
 # =============================
 def utc_now():
-    """ترجع الوقت الحالي بتوقيت UTC (مع معلومات المنطقة الزمنية)"""
     return datetime.now(timezone.utc)
 
 def mecca_now():
-    """ترجع الوقت الحالي بتوقيت مكة المكرمة (UTC+3)"""
     return utc_now().astimezone(timezone(timedelta(hours=3)))
 
 def today_str():
-    """ترجع تاريخ اليوم بصيغة YYYY-MM-DD (بالتوقيت المحلي)"""
     return mecca_now().date().isoformat()
 
 def is_closed_time():
-    """تتحقق مما إذا كان الوقت الحالي بين 11 مساءً و 7 صباحاً بتوقيت مكة"""
     now = mecca_now()
-    # طباعة تشخيصية (يمكن إزالتها بعد التأكد من العمل)
     print(f"⏰ التحقق من الوقت: {now.strftime('%Y-%m-%d %H:%M:%S')} - الساعة: {now.hour}")
     return now.hour >= 23 or now.hour < 7
 
@@ -195,7 +191,8 @@ CREATE TABLE IF NOT EXISTS settings (
     closed INTEGER DEFAULT 0,
     manually_closed INTEGER DEFAULT 0,
     manually_opened INTEGER DEFAULT 0,
-    ask_enabled INTEGER DEFAULT 1
+    ask_enabled INTEGER DEFAULT 1,
+    search_enabled INTEGER DEFAULT 1
 )
 """)
 
@@ -208,7 +205,73 @@ CREATE TABLE IF NOT EXISTS ask_usage (
     PRIMARY KEY (chat_id, user_id, date)
 )
 """)
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS search_usage (
+    chat_id INTEGER,
+    user_id INTEGER,
+    date TEXT,
+    count INTEGER DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id, date)
+)
+""")
 conn.commit()
+
+# =============================
+# دالة البحث في الموقع
+# =============================
+async def search_templates(query: str) -> str:
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = "https://eduai-sa.com/api/templates"
+            async with session.get(url) as response:
+                if response.status != 200:
+                    return "❌ حدث خطأ في الاتصال بالموقع."
+                
+                templates = await response.json()
+                
+                # فلترة النتائج حسب كلمة البحث
+                results = []
+                for template in templates:
+                    if query.lower() in template['title'].lower() or query.lower() in template['category'].lower():
+                        # استخراج القسم والفئة من التصنيف
+                        category_parts = template['category'].split(' > ')
+                        if len(category_parts) >= 3:
+                            category_display = f"{category_parts[0]} - {category_parts[1]}"
+                        elif len(category_parts) >= 2:
+                            category_display = category_parts[0]
+                        else:
+                            category_display = template['category']
+                        
+                        # بناء رابط التحميل
+                        download_url = template['download']
+                        
+                        results.append({
+                            'title': template['title'],
+                            'category': category_display,
+                            'link': download_url
+                        })
+                
+                if not results:
+                    return f"❌ لا توجد نتائج لـ '{query}'."
+                
+                # ترتيب النتائج حسب القسم (اختياري)
+                results.sort(key=lambda x: x['category'])
+                
+                # بناء رسالة الرد
+                reply = f"🔍 **نتائج البحث عن:** {query}\n\n"
+                for i, res in enumerate(results[:10], 1):  # حد أقصى 10 نتائج
+                    reply += f"{i}. **{res['title']}**\n"
+                    reply += f"   📂 {res['category']}\n"
+                    reply += f"   🔗 [تحميل]({res['link']})\n\n"
+                
+                if len(results) > 10:
+                    reply += f"*...و {len(results)-10} نتيجة أخرى.*"
+                
+                return reply
+                
+    except Exception as e:
+        return f"❌ خطأ في البحث: {str(e)}"
 
 # =============================
 # لوحة المفاتيح (تعتمد على المجموعة)
@@ -227,11 +290,16 @@ def admin_keyboard(chat_id: int):
             InlineKeyboardButton(text="🔓 تشغيل المجموعة", callback_data="open_group")
         ]
     ]
-    if chat_id == OWNER_GROUP_ID:
+    
+    if chat_id in OWNER_GROUPS:
         extra_buttons = [
             [
                 InlineKeyboardButton(text="✅ تفعيل /ask", callback_data="enable_ask"),
                 InlineKeyboardButton(text="❌ تعطيل /ask", callback_data="disable_ask")
+            ],
+            [
+                InlineKeyboardButton(text="✅ تفعيل /search", callback_data="enable_search"),
+                InlineKeyboardButton(text="❌ تعطيل /search", callback_data="disable_search")
             ],
             [
                 InlineKeyboardButton(text="💡 تفعيل النصائح", callback_data="enable_tips"),
@@ -297,7 +365,7 @@ async def manual_open_group(chat_id):
     conn.commit()
 
 # =============================
-# المهمة المجدولة للإغلاق والفتح التلقائي (محسنة)
+# المهمة المجدولة للإغلاق والفتح التلقائي
 # =============================
 async def scheduler():
     print("🚀 بدأ المجدول التلقائي - توقيت مكة المكرمة (UTC+3)")
@@ -329,7 +397,7 @@ async def scheduler():
         await asyncio.sleep(60)
 
 # =============================
-# المهمة اليومية للرسالة الترويجية (الساعة 8 صباحاً)
+# المهمة اليومية للرسالة الترويجية
 # =============================
 async def daily_promo():
     while True:
@@ -344,22 +412,23 @@ async def daily_promo():
         print(f"📅 الرسالة الترويجية سترسل بعد {wait_seconds/3600:.2f} ساعة")
         await asyncio.sleep(wait_seconds)
 
-        try:
-            promo_text = (
-                "🌞 صباح الخير! أنا بوت\n\n"
-                "هل لديك سؤال عن الذكاء الاصطناعي، التعليم، أو أي موضوع آخر؟\n"
-                "اكتب الأمر بالاسفل ثم مسافة ثم سؤالك، وسأجيبك فوراً! (لديك 5 أسئلة يومياً)\n\n"
-                "/ask\n"
-                "جرب الآن، وأخبرني ماذا تريد أن تتعلم اليوم؟ 🚀"
-            )
-            await bot.send_message(OWNER_GROUP_ID, promo_text)
-        except Exception as e:
-            print(f"❌ فشل إرسال الرسالة الترويجية: {e}")
+        for group_id in OWNER_GROUPS:
+            try:
+                promo_text = (
+                    "🌞 صباح الخير! أنا بوت **نماذج Ai التعليمية**.\n\n"
+                    "📚 **لديك خياران:**\n"
+                    "• `/ask` لطرح أي سؤال عن التقنية أو التعليم (5 أسئلة يومياً)\n"
+                    "• `/search` للبحث في موقعنا عن نماذج تعليمية جاهزة\n\n"
+                    "جرب الآن، وأخبرني ماذا تريد أن تتعلم اليوم؟ 🚀"
+                )
+                await bot.send_message(group_id, promo_text)
+            except Exception as e:
+                print(f"❌ فشل إرسال الرسالة الترويجية للمجموعة {group_id}: {e}")
 
         await asyncio.sleep(24 * 3600)
 
 # =============================
-# المهمة اليومية للنصائح الصباحية (الساعة 10 صباحاً)
+# المهمة اليومية للنصائح الصباحية
 # =============================
 async def daily_morning_tips():
     while True:
@@ -375,15 +444,16 @@ async def daily_morning_tips():
         await asyncio.sleep(wait_seconds)
 
         tip = random.choice(MORNING_TIPS)
-        try:
-            await bot.send_message(OWNER_GROUP_ID, tip)
-        except Exception as e:
-            print(f"❌ فشل إرسال نصيحة صباحية: {e}")
+        for group_id in OWNER_GROUPS:
+            try:
+                await bot.send_message(group_id, tip)
+            except Exception as e:
+                print(f"❌ فشل إرسال نصيحة صباحية للمجموعة {group_id}: {e}")
 
         await asyncio.sleep(24 * 3600)
 
 # =============================
-# المهمة اليومية للنصائح الظهرية (الساعة 12 ظهراً)
+# المهمة اليومية للنصائح الظهرية
 # =============================
 async def daily_afternoon_tips():
     while True:
@@ -399,10 +469,11 @@ async def daily_afternoon_tips():
         await asyncio.sleep(wait_seconds)
 
         tip = random.choice(AFTERNOON_TIPS)
-        try:
-            await bot.send_message(OWNER_GROUP_ID, tip)
-        except Exception as e:
-            print(f"❌ فشل إرسال نصيحة ظهرية: {e}")
+        for group_id in OWNER_GROUPS:
+            try:
+                await bot.send_message(group_id, tip)
+            except Exception as e:
+                print(f"❌ فشل إرسال نصيحة ظهرية للمجموعة {group_id}: {e}")
 
         await asyncio.sleep(24 * 3600)
 
@@ -447,7 +518,7 @@ async def tabuk(message: types.Message):
             reply_markup=admin_keyboard(message.chat.id)
         )
         cursor.execute(
-            "INSERT OR IGNORE INTO settings(chat_id, links, closed, manually_closed, manually_opened, ask_enabled) VALUES (?,0,0,0,0,1)",
+            "INSERT OR IGNORE INTO settings(chat_id, links, closed, manually_closed, manually_opened, ask_enabled, search_enabled) VALUES (?,0,0,0,0,1,1)",
             (message.chat.id,)
         )
         conn.commit()
@@ -528,7 +599,7 @@ async def mute_command(message: types.Message):
         await message.reply(f"❌ فشل الكتم: {e}")
 
 # =============================
-# الأمر /ask (للمجموعة الخاصة فقط)
+# الأمر /ask (للمجموعات الخاصة فقط)
 # =============================
 @dp.message(F.text.startswith("/ask"))
 async def ask_command(message: types.Message):
@@ -538,11 +609,10 @@ async def ask_command(message: types.Message):
     print(f"💬 المجموعة: {message.chat.id}")
 
     chat_id = message.chat.id
-    if chat_id != OWNER_GROUP_ID:
-        await message.reply("❌ هذه الميزة متاحة فقط في المجموعة الرسمية.")
+    if chat_id not in OWNER_GROUPS:
+        await message.reply("❌ هذه الميزة متاحة فقط في المجموعات الرسمية.")
         return
 
-    # التحقق من حالة ask_enabled
     cursor.execute("SELECT ask_enabled FROM settings WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     if not row or row[0] == 0:
@@ -593,6 +663,68 @@ async def ask_command(message: types.Message):
 
     await processing_msg.delete()
     await message.reply(final_answer)
+
+# =============================
+# الأمر /search (للمجموعات الخاصة فقط)
+# =============================
+@dp.message(F.text.startswith("/search"))
+async def search_command(message: types.Message):
+    print("🔍 دالة search_command استدعيت!")
+    print(f"📌 النص: {message.text}")
+    print(f"👤 المستخدم: {message.from_user.id}")
+    print(f"💬 المجموعة: {message.chat.id}")
+
+    chat_id = message.chat.id
+    if chat_id not in OWNER_GROUPS:
+        await message.reply("❌ هذه الميزة متاحة فقط في المجموعات الرسمية.")
+        return
+
+    cursor.execute("SELECT search_enabled FROM settings WHERE chat_id=?", (chat_id,))
+    row = cursor.fetchone()
+    if not row or row[0] == 0:
+        await message.reply("❌ الأمر /search معطل حالياً من قبل المشرف.")
+        return
+
+    query = message.text.replace("/search", "", 1).strip()
+    if not query:
+        await message.reply("❌ يرجى كتابة كلمة البحث بعد الأمر.\nمثال: `/search خطة درس`")
+        return
+
+    # التحقق من الاستخدام اليومي (10 مرات كافية)
+    today = today_str()
+    cursor.execute(
+        "SELECT count FROM search_usage WHERE chat_id=? AND user_id=? AND date=?",
+        (chat_id, user_id, today)
+    )
+    row = cursor.fetchone()
+    current_usage = row[0] if row else 0
+
+    if current_usage >= 10:
+        await message.reply(
+            "🌼 شكراً لك على استخدام البحث! لقد استهلكت اليوم جميع محاولاتك المتاحة (10/10).\n"
+            "نراكم غداً مع المزيد من النماذج! 📚"
+        )
+        return
+
+    processing_msg = await message.reply("🔍 جاري البحث في الموقع...")
+
+    results = await search_templates(query)
+
+    # تحديث عداد الاستخدام
+    if row:
+        cursor.execute(
+            "UPDATE search_usage SET count = count + 1 WHERE chat_id=? AND user_id=? AND date=?",
+            (chat_id, user_id, today)
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO search_usage (chat_id, user_id, date, count) VALUES (?, ?, ?, 1)",
+            (chat_id, user_id, today)
+        )
+    conn.commit()
+
+    await processing_msg.delete()
+    await message.reply(results, disable_web_page_preview=True)
 
 # =============================
 # الحماية التلقائية (لجميع المجموعات)
@@ -674,9 +806,9 @@ async def callbacks(call: types.CallbackQuery):
         await manual_open_group(chat_id)
         await call.answer("🔓 تم فتح المجموعة")
 
-    # أزرار المجموعة الخاصة
-    elif call.data in ["enable_ask", "disable_ask", "enable_tips", "disable_tips"]:
-        if chat_id != OWNER_GROUP_ID:
+    # أزرار المجموعات الخاصة
+    elif call.data in ["enable_ask", "disable_ask", "enable_search", "disable_search", "enable_tips", "disable_tips"]:
+        if chat_id not in OWNER_GROUPS:
             await call.answer("❌ هذه الإعدادات غير متاحة في هذه المجموعة.", show_alert=True)
             return
 
@@ -688,8 +820,15 @@ async def callbacks(call: types.CallbackQuery):
             cursor.execute("UPDATE settings SET ask_enabled=0 WHERE chat_id=?", (chat_id,))
             conn.commit()
             await call.message.answer("🔒 تم تعطيل الأمر /ask في المجموعة الخاصة (لجميع الأعضاء).")
+        elif call.data == "enable_search":
+            cursor.execute("UPDATE settings SET search_enabled=1 WHERE chat_id=?", (chat_id,))
+            conn.commit()
+            await call.message.answer("✅ تم تفعيل الأمر /search في المجموعة الخاصة.")
+        elif call.data == "disable_search":
+            cursor.execute("UPDATE settings SET search_enabled=0 WHERE chat_id=?", (chat_id,))
+            conn.commit()
+            await call.message.answer("🔒 تم تعطيل الأمر /search في المجموعة الخاصة (لجميع الأعضاء).")
         elif call.data == "enable_tips":
-            # يمكن إضافة عمود tips_enabled لاحقاً إذا أردت التحكم الدقيق
             await call.message.answer("💡 النصائح اليومية مفعلة (ترسل تلقائياً).")
         elif call.data == "disable_tips":
             await call.message.answer("🔇 تم تعطيل النصائح اليومية (لن ترسل بعد الآن).")
@@ -701,6 +840,7 @@ async def callbacks(call: types.CallbackQuery):
 # =============================
 async def main():
     print("🔥 بوت الحماية شغال - توقيت UTC معتمد")
+    print(f"👥 المجموعات الخاصة: {OWNER_GROUPS}")
     asyncio.create_task(scheduler())
     asyncio.create_task(daily_promo())
     asyncio.create_task(daily_morning_tips())

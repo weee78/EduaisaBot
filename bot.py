@@ -226,52 +226,78 @@ async def search_templates(query: str) -> str:
             url = "https://eduai-sa.com/api/templates"
             async with session.get(url) as response:
                 if response.status != 200:
-                    return "❌ حدث خطأ في الاتصال بالموقع."
+                    return f"❌ حدث خطأ في الاتصال بالموقع (كود {response.status})."
                 
                 templates = await response.json()
+                print(f"📦 عدد القوالب المستلمة: {len(templates)}")  # للتشخيص
+                
+                if not templates:
+                    return "❌ لا توجد قوالب في قاعدة البيانات."
                 
                 # فلترة النتائج حسب كلمة البحث
                 results = []
+                query_lower = query.lower()
+                
                 for template in templates:
-                    if query.lower() in template['title'].lower() or query.lower() in template['category'].lower():
+                    # طباعة هيكل القالب الأول للتشخيص
+                    if len(results) == 0 and len(templates) > 0:
+                        print(f"🔍 هيكل القالب الأول: {template}")
+                    
+                    # البحث في العنوان والفئة (مع التحقق من وجود المفاتيح)
+                    title = template.get('title', '')
+                    category = template.get('category', '')
+                    description = template.get('description', '')
+                    
+                    if (query_lower in title.lower() or 
+                        query_lower in category.lower() or 
+                        query_lower in description.lower()):
+                        
                         # استخراج القسم والفئة من التصنيف
-                        category_parts = template['category'].split(' > ')
+                        category_parts = category.split(' > ')
                         if len(category_parts) >= 3:
                             category_display = f"{category_parts[0]} - {category_parts[1]}"
                         elif len(category_parts) >= 2:
-                            category_display = category_parts[0]
+                            category_display = f"{category_parts[0]} - {category_parts[1]}"
                         else:
-                            category_display = template['category']
+                            category_display = category
                         
-                        # بناء رابط التحميل
-                        download_url = template['download']
+                        # الحصول على رابط التحميل
+                        download_url = template.get('download', '')
+                        if not download_url:
+                            download_url = template.get('link', '')
                         
                         results.append({
-                            'title': template['title'],
+                            'title': title,
                             'category': category_display,
                             'link': download_url
                         })
                 
+                print(f"📊 عدد النتائج: {len(results)}")  # للتشخيص
+                
                 if not results:
                     return f"❌ لا توجد نتائج لـ '{query}'."
                 
-                # ترتيب النتائج حسب القسم (اختياري)
+                # ترتيب النتائج حسب القسم
                 results.sort(key=lambda x: x['category'])
                 
                 # بناء رسالة الرد
                 reply = f"🔍 **نتائج البحث عن:** {query}\n\n"
-                for i, res in enumerate(results[:10], 1):  # حد أقصى 10 نتائج
+                for i, res in enumerate(results[:10], 1):
                     reply += f"{i}. **{res['title']}**\n"
                     reply += f"   📂 {res['category']}\n"
-                    reply += f"   🔗 [تحميل]({res['link']})\n\n"
+                    if res['link']:
+                        reply += f"   🔗 [تحميل]({res['link']})\n"
+                    reply += "\n"
                 
                 if len(results) > 10:
                     reply += f"*...و {len(results)-10} نتيجة أخرى.*"
                 
                 return reply
                 
+    except aiohttp.ClientError as e:
+        return f"❌ خطأ في الاتصال بالموقع: {str(e)}"
     except Exception as e:
-        return f"❌ خطأ في البحث: {str(e)}"
+        return f"❌ خطأ غير متوقع: {str(e)}"
 
 # =============================
 # لوحة المفاتيح (تعتمد على المجموعة)

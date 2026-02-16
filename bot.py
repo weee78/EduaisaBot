@@ -224,74 +224,58 @@ async def search_templates(query: str) -> str:
     try:
         async with aiohttp.ClientSession() as session:
             url = "https://eduai-sa.com/api/templates"
-            async with session.get(url) as response:
+            headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegramBot)"}
+            async with session.get(url, headers=headers) as response:
                 if response.status != 200:
-                    return f"❌ حدث خطأ في الاتصال بالموقع (كود {response.status})."
+                    return f"❌ الموقع رد بكود {response.status}. تأكد من أن الرابط يعمل."
                 
-                templates = await response.json()
-                print(f"📦 عدد القوالب المستلمة: {len(templates)}")  # للتشخيص
+                text = await response.text()
+                print(f"📄 نص الاستجابة (أول 200 حرف): {text[:200]}")
                 
+                try:
+                    templates = await response.json()
+                except:
+                    return "❌ لم أتمكن من قراءة البيانات (ليست JSON)."
+                
+                print(f"📦 عدد القوالب: {len(templates)}")
                 if not templates:
-                    return "❌ لا توجد قوالب في قاعدة البيانات."
+                    return "❌ قاعدة البيانات فارغة."
                 
-                # فلترة النتائج حسب كلمة البحث
+                print(f"🔍 عينة من أول قالب: {templates[0]}")
+                
+                # فلترة النتائج
                 results = []
                 query_lower = query.lower()
-                
-                for template in templates:
-                    # طباعة هيكل القالب الأول للتشخيص
-                    if len(results) == 0 and len(templates) > 0:
-                        print(f"🔍 هيكل القالب الأول: {template}")
-                    
-                    # البحث في العنوان والفئة (مع التحقق من وجود المفاتيح)
-                    title = template.get('title', '')
-                    category = template.get('category', '')
-                    description = template.get('description', '')
-                    
+                for t in templates:
+                    title = t.get('title', '')
+                    category = t.get('category', '')
+                    desc = t.get('description', '')
                     if (query_lower in title.lower() or 
                         query_lower in category.lower() or 
-                        query_lower in description.lower()):
-                        
-                        # استخراج القسم والفئة من التصنيف
-                        category_parts = category.split(' > ')
-                        if len(category_parts) >= 3:
-                            category_display = f"{category_parts[0]} - {category_parts[1]}"
-                        elif len(category_parts) >= 2:
-                            category_display = f"{category_parts[0]} - {category_parts[1]}"
-                        else:
-                            category_display = category
-                        
-                        # الحصول على رابط التحميل
-                        download_url = template.get('download', '')
-                        if not download_url:
-                            download_url = template.get('link', '')
-                        
+                        query_lower in desc.lower()):
+                        # تجميع النتيجة
+                        download = t.get('download') or t.get('link', '')
                         results.append({
                             'title': title,
-                            'category': category_display,
-                            'link': download_url
+                            'category': category,
+                            'link': download
                         })
                 
-                print(f"📊 عدد النتائج: {len(results)}")  # للتشخيص
+                print(f"🔎 عدد النتائج لـ '{query}': {len(results)}")
                 
                 if not results:
-                    return f"❌ لا توجد نتائج لـ '{query}'."
+                    return f"❌ لا توجد نتائج مطابقة لـ '{query}'."
                 
-                # ترتيب النتائج حسب القسم
-                results.sort(key=lambda x: x['category'])
-                
-                # بناء رسالة الرد
+                # بناء الرد
                 reply = f"🔍 **نتائج البحث عن:** {query}\n\n"
-                for i, res in enumerate(results[:10], 1):
-                    reply += f"{i}. **{res['title']}**\n"
-                    reply += f"   📂 {res['category']}\n"
-                    if res['link']:
-                        reply += f"   🔗 [تحميل]({res['link']})\n"
+                for i, r in enumerate(results[:10], 1):
+                    reply += f"{i}. **{r['title']}**\n"
+                    reply += f"   📂 {r['category']}\n"
+                    if r['link']:
+                        reply += f"   🔗 [تحميل]({r['link']})\n"
                     reply += "\n"
-                
                 if len(results) > 10:
-                    reply += f"*...و {len(results)-10} نتيجة أخرى.*"
-                
+                    reply += f"*...و {len(results)-10} نتائج أخرى.*"
                 return reply
                 
     except aiohttp.ClientError as e:

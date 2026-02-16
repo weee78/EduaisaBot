@@ -47,17 +47,20 @@ async def ask_deepseek(question: str) -> str:
 # دوال الوقت
 # =============================
 def utc_now():
+    """ترجع الوقت الحالي بتوقيت UTC (مع معلومات المنطقة الزمنية)"""
     return datetime.now(timezone.utc)
 
 def mecca_now():
+    """ترجع الوقت الحالي بتوقيت مكة المكرمة (UTC+3)"""
     return utc_now().astimezone(timezone(timedelta(hours=3)))
 
 def today_str():
+    """ترجع تاريخ اليوم بصيغة YYYY-MM-DD (بالتوقيت المحلي)"""
     return mecca_now().date().isoformat()
 
 def is_closed_time():
+    """تتحقق مما إذا كان الوقت الحالي بين 11 مساءً و 7 صباحاً بتوقيت مكة"""
     now = mecca_now()
-    print(f"⏰ التحقق من الوقت: {now.strftime('%Y-%m-%d %H:%M:%S')} - الساعة: {now.hour}")
     return now.hour >= 23 or now.hour < 7
 
 # =============================
@@ -224,60 +227,47 @@ async def search_templates(query: str) -> str:
     try:
         async with aiohttp.ClientSession() as session:
             url = "https://eduai-sa.com/api/templates"
-            headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegramBot)"}
-            async with session.get(url, headers=headers) as response:
+            async with session.get(url) as response:
                 if response.status != 200:
-                    return f"❌ الموقع رد بكود {response.status}. تأكد من أن الرابط يعمل."
-                
-                text = await response.text()
-                print(f"📄 نص الاستجابة (أول 200 حرف): {text[:200]}")
-                
-                try:
-                    templates = await response.json()
-                except:
-                    return "❌ لم أتمكن من قراءة البيانات (ليست JSON)."
-                
-                print(f"📦 عدد القوالب: {len(templates)}")
+                    return f"❌ حدث خطأ في الاتصال بالموقع (كود {response.status})."
+
+                templates = await response.json()
                 if not templates:
-                    return "❌ قاعدة البيانات فارغة."
-                
-                print(f"🔍 عينة من أول قالب: {templates[0]}")
-                
-                # فلترة النتائج
+                    return "❌ لا توجد قوالب في قاعدة البيانات."
+
                 results = []
                 query_lower = query.lower()
-                for t in templates:
-                    title = t.get('title', '')
-                    category = t.get('category', '')
-                    desc = t.get('description', '')
-                    if (query_lower in title.lower() or 
-                        query_lower in category.lower() or 
-                        query_lower in desc.lower()):
-                        # تجميع النتيجة
-                        download = t.get('download') or t.get('link', '')
+                for template in templates:
+                    title = template.get('title', '')
+                    category = template.get('category', '')
+                    description = template.get('description', '')
+                    if (query_lower in title.lower() or
+                        query_lower in category.lower() or
+                        query_lower in description.lower()):
+                        download_url = template.get('download') or template.get('link', '')
                         results.append({
                             'title': title,
                             'category': category,
-                            'link': download
+                            'link': download_url
                         })
-                
-                print(f"🔎 عدد النتائج لـ '{query}': {len(results)}")
-                
+
                 if not results:
-                    return f"❌ لا توجد نتائج مطابقة لـ '{query}'."
-                
-                # بناء الرد
+                    return f"❌ لا توجد نتائج لـ '{query}'."
+
+                # ترتيب النتائج
+                results.sort(key=lambda x: x['category'])
+
                 reply = f"🔍 **نتائج البحث عن:** {query}\n\n"
-                for i, r in enumerate(results[:10], 1):
-                    reply += f"{i}. **{r['title']}**\n"
-                    reply += f"   📂 {r['category']}\n"
-                    if r['link']:
-                        reply += f"   🔗 [تحميل]({r['link']})\n"
+                for i, res in enumerate(results[:10], 1):
+                    reply += f"{i}. **{res['title']}**\n"
+                    reply += f"   📂 {res['category']}\n"
+                    if res['link']:
+                        reply += f"   🔗 [تحميل]({res['link']})\n"
                     reply += "\n"
                 if len(results) > 10:
-                    reply += f"*...و {len(results)-10} نتائج أخرى.*"
+                    reply += f"*...و {len(results)-10} نتيجة أخرى.*"
                 return reply
-                
+
     except aiohttp.ClientError as e:
         return f"❌ خطأ في الاتصال بالموقع: {str(e)}"
     except Exception as e:
@@ -300,7 +290,7 @@ def admin_keyboard(chat_id: int):
             InlineKeyboardButton(text="🔓 تشغيل المجموعة", callback_data="open_group")
         ]
     ]
-    
+
     if chat_id in OWNER_GROUPS:
         extra_buttons = [
             [
@@ -390,19 +380,13 @@ async def scheduler():
 
         for chat_id, closed, manually_closed, manually_opened in rows:
             if is_closed_time():
-                print(f"🔴 وقت الإغلاق (الساعة {current_hour}) - مجموعة {chat_id}: closed={closed}, manually_opened={manually_opened}")
                 if closed == 0 and manually_opened == 0:
-                    print(f"⚡ سيتم إغلاق المجموعة {chat_id}")
+                    print(f"🔴 جاري إغلاق المجموعة {chat_id}")
                     await auto_close_group(chat_id)
-                else:
-                    print(f"⏭️ لن يتم إغلاق {chat_id}: closed={closed}, manually_opened={manually_opened}")
             else:
-                print(f"🟢 وقت الفتح (الساعة {current_hour}) - مجموعة {chat_id}: closed={closed}, manually_closed={manually_closed}")
                 if closed == 1 and manually_closed == 0:
-                    print(f"⚡ سيتم فتح المجموعة {chat_id}")
+                    print(f"🟢 جاري فتح المجموعة {chat_id}")
                     await auto_open_group(chat_id)
-                else:
-                    print(f"⏭️ لن يتم فتح {chat_id}: closed={closed}, manually_closed={manually_closed}")
 
         await asyncio.sleep(60)
 
@@ -614,10 +598,6 @@ async def mute_command(message: types.Message):
 @dp.message(F.text.startswith("/ask"))
 async def ask_command(message: types.Message):
     print("🔥 دالة ask_command استدعيت!")
-    print(f"📌 النص: {message.text}")
-    print(f"👤 المستخدم: {message.from_user.id}")
-    print(f"💬 المجموعة: {message.chat.id}")
-
     chat_id = message.chat.id
     if chat_id not in OWNER_GROUPS:
         await message.reply("❌ هذه الميزة متاحة فقط في المجموعات الرسمية.")
@@ -630,10 +610,12 @@ async def ask_command(message: types.Message):
         return
 
     user_id = message.from_user.id
-    question = message.text.replace("/ask", "", 1).strip()
-    if not question:
+    # استخراج النص بعد الأمر باستخدام split
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
         await message.reply("❌ يرجى كتابة سؤالك بعد الأمر.\nمثال: `/ask ما هو الذكاء الاصطناعي؟`")
         return
+    question = parts[1].strip()
 
     today = today_str()
     cursor.execute(
@@ -680,10 +662,6 @@ async def ask_command(message: types.Message):
 @dp.message(F.text.startswith("/search"))
 async def search_command(message: types.Message):
     print("🔍 دالة search_command استدعيت!")
-    print(f"📌 النص: {message.text}")
-    print(f"👤 المستخدم: {message.from_user.id}")
-    print(f"💬 المجموعة: {message.chat.id}")
-
     chat_id = message.chat.id
     if chat_id not in OWNER_GROUPS:
         await message.reply("❌ هذه الميزة متاحة فقط في المجموعات الرسمية.")
@@ -695,12 +673,13 @@ async def search_command(message: types.Message):
         await message.reply("❌ الأمر /search معطل حالياً من قبل المشرف.")
         return
 
-    query = message.text.replace("/search", "", 1).strip()
-    if not query:
+    user_id = message.from_user.id
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
         await message.reply("❌ يرجى كتابة كلمة البحث بعد الأمر.\nمثال: `/search خطة درس`")
         return
+    query = parts[1].strip()
 
-    # التحقق من الاستخدام اليومي (10 مرات كافية)
     today = today_str()
     cursor.execute(
         "SELECT count FROM search_usage WHERE chat_id=? AND user_id=? AND date=?",
@@ -720,7 +699,6 @@ async def search_command(message: types.Message):
 
     results = await search_templates(query)
 
-    # تحديث عداد الاستخدام
     if row:
         cursor.execute(
             "UPDATE search_usage SET count = count + 1 WHERE chat_id=? AND user_id=? AND date=?",

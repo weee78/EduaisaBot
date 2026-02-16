@@ -2,3 +2,4 @@ aiogram
 openai
 requests
 beautifulsoup4
+aiohttp
